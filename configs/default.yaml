@@ -1,0 +1,18 @@
+model:
+  path: "models/fire_yolov26.pt"
+  device: "auto"
+  image_size: 640
+
+inference:
+  confidence_threshold: 0.65
+  iou_threshold: 0.45
+  max_fps: 5
+
+filtering:
+  min_persistence_seconds: 2.0
+  min_consecutive_frames: 5
+  min_bbox_area_ratio: 0.002
+  alarm_cooldown_seconds: 60
+
+classes:
+  allowed: [0, 1]  # smoke, fire from D-Fire
