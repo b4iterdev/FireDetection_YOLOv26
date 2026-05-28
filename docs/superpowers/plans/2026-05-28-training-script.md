@@ -16,14 +16,26 @@
 - Create: `scripts/train.py`
 - Modify: `configs/default.yaml` (verify content)
 
-- [ ] **Step 1: Implement basic CLI structure and config loading**
+- [ ] **Step 1: Implement basic CLI structure and config loading with MPS support**
 
 ```python
 import argparse
 import os
 import shutil
+import torch
 from ultralytics import YOLO
 from fire_detection_alarm.app.config import load_config
+
+def get_default_device(cfg):
+    """Determine default device, preferring MPS on Apple Silicon."""
+    yaml_device = cfg.get("model", {}).get("device", "auto")
+    if yaml_device == "auto":
+        if torch.backends.mps.is_available():
+            return "mps"
+        if torch.cuda.is_available():
+            return "0"
+        return "cpu"
+    return yaml_device
 
 def parse_args(cfg):
     parser = argparse.ArgumentParser(description="Train YOLOv26 on D-Fire dataset")
@@ -32,20 +44,10 @@ def parse_args(cfg):
     parser.add_argument("--epochs", type=int, default=100, help="Number of epochs")
     parser.add_argument("--batch", type=int, default=16, help="Batch size")
     parser.add_argument("--imgsz", type=int, default=cfg.get("model", {}).get("image_size", 640), help="Image size")
-    parser.add_argument("--device", default=cfg.get("model", {}).get("device", "auto"), help="Device (cpu, 0, etc.)")
+    parser.add_argument("--device", default=get_default_device(cfg), help="Device (cpu, 0, mps, etc.)")
     parser.add_argument("--project", default="runs/train", help="Project directory")
     parser.add_argument("--name", default="fire_detection", help="Experiment name")
     return parser.parse_args()
-
-def main():
-    cfg = load_config()
-    args = parse_args(cfg)
-    print(f"Starting training with base model: {args.model}")
-    print(f"Dataset: {args.data}")
-    # Placeholder for Task 2
-    
-if __name__ == "__main__":
-    main()
 ```
 
 - [ ] **Step 2: Run syntax check**

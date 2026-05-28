@@ -1,0 +1,4 @@
+.DS_Store
+dataset/D-Fire
+runs/
+__pycache__
