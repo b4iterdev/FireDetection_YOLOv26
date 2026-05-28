@@ -1,1 +1,0 @@
-- Implemented CooldownTracker as a minimal deterministic primitive with per-source timestamp state only.
