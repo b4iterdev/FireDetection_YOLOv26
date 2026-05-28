@@ -89,7 +89,7 @@ def get_default_device(cfg: Config) -> str:
 def parse_args(cfg: Config, argv: list[str] | None = None) -> TrainArgs:
     model_cfg = cfg.get("model", {})
     parser = argparse.ArgumentParser(description="Fire detection training entrypoint")
-    _ = parser.add_argument("--model", default="yolo11n.pt", help="Pre-trained YOLOv11/26 model (e.g. yolo11n.pt)")
+    _ = parser.add_argument("--model", default=model_cfg.get("path", "yolo11n.pt"), help="Pre-trained YOLOv11/26 model (e.g. yolo11n.pt)")
     _ = parser.add_argument("--data", default=DEFAULT_DATA_PATH)
     _ = parser.add_argument("--epochs", type=int, default=100)
     _ = parser.add_argument("--batch", type=int, default=16)
