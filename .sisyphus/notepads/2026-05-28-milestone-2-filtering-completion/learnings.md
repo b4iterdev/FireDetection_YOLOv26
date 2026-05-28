@@ -1,0 +1,2 @@
+- Cooldown tracking is source-local: each source_id keeps its own last accepted timestamp.
+- Acceptance is inclusive at the boundary: timestamp - last_accepted >= cooldown_seconds.
