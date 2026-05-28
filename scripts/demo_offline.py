@@ -15,7 +15,7 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config()
-    engine = YOLOEngine(args.model)
+    engine = YOLOEngine(args.model, device=cfg["model"]["device"])
     
     if args.input.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
         source = ImageSource(args.input)
