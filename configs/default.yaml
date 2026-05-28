@@ -16,3 +16,6 @@ filtering:
 
 classes:
   allowed: [0, 1]  # smoke, fire from D-Fire
+
+logging:
+  detections_path: "outputs/detections.jsonl"
