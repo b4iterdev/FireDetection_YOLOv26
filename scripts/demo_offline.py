@@ -1,4 +1,3 @@
-# pyright: reportUnknownVariableType=false, reportAny=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportOptionalMemberAccess=false, reportCallIssue=false, reportArgumentType=false
 import cv2
 import time
 import argparse
