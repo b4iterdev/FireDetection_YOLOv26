@@ -13,6 +13,7 @@ def test_image_source(tmp_path):
     source = ImageSource(img_path)
     ret, frame = source.read()
     assert ret is True
+    assert frame is not None
     assert frame.shape == (100, 100, 3)
     
     ret, frame = source.read()

@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 from fire_detection_alarm.inputs.base import BaseSource
 
 class ImageSource(BaseSource):
@@ -6,7 +7,7 @@ class ImageSource(BaseSource):
         self.path = path
         self.frame = None
 
-    def read(self):
+    def read(self) -> tuple[bool, np.ndarray | None]:
         if self.frame is not None:
             return False, None
         
