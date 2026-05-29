@@ -18,7 +18,9 @@ from fire_detection_alarm.filtering.decision import DetectionDecision
 from fire_detection_alarm.filtering.detection_filter import DetectionFilter
 from fire_detection_alarm.filtering.temporal_filter import TemporalFilter
 from fire_detection_alarm.filtering.cooldown import CooldownTracker
+from fire_detection_alarm.filtering.falsenet_filter import FalseNetFilter
 from fire_detection_alarm.logging.detection_logger import DetectionLogger
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -40,6 +42,13 @@ def main():
     cooldown = CooldownTracker(
         cooldown_seconds=cfg["filtering"]["alarm_cooldown_seconds"]
     )
+    
+    falsenet_filter = None
+    if cfg.get("falsenet", {}).get("enabled", False):
+        falsenet_filter = FalseNetFilter(
+            threat_threshold=cfg["falsenet"]["threat_threshold"]
+        )
+
     log_path = cfg.get("logging", {}).get("detections_path", "outputs/detections.jsonl")
     detection_logger = DetectionLogger(log_path)
     
@@ -61,50 +70,52 @@ def main():
         )
         
         timestamp = time.time()
-        detections = normalize_yolo_output(results[0], "demo", frame_id, timestamp)
-        static_decisions = [
-            detection_filter.check(detection, frame.shape)
-            for detection in detections
-        ]
-        static_accepted = [
-            decision.detection
-            for decision in static_decisions
-            if decision.accepted
-        ]
+        yolo_detections = normalize_yolo_output(results[0], "demo", frame_id, timestamp)
+        
+        pipeline_decisions = []
+
+        static_decisions = [detection_filter.check(d, frame.shape) for d in yolo_detections]
+        pipeline_decisions.extend(d for d in static_decisions if not d.accepted)
+        
+        statically_accepted_detections = [d.detection for d in static_decisions if d.accepted]
+
+        if falsenet_filter:
+            falsenet_decisions = falsenet_filter.classify(frame, statically_accepted_detections)
+            pipeline_decisions.extend(d for d in falsenet_decisions if not d.accepted)
+            
+            post_falsenet_detections = [d.detection for d in falsenet_decisions if d.accepted]
+        else:
+            post_falsenet_detections = statically_accepted_detections
+
         temporally_accepted = temporal_filter.check(
             "demo",
-            bool(static_accepted),
+            bool(post_falsenet_detections),
             timestamp=timestamp,
         )
 
-        final_decisions = []
-        for decision in static_decisions:
-            if not decision.accepted:
-                final_decisions.append(decision)
-                continue
-
+        for detection in post_falsenet_detections:
             if not temporally_accepted:
-                final_decisions.append(
-                    DetectionDecision(decision.detection, False, "not_persistent", timestamp)
+                pipeline_decisions.append(
+                    DetectionDecision(detection, False, "not_persistent", timestamp)
                 )
                 continue
 
-            if not cooldown.check(decision.detection.source_id, timestamp):
-                final_decisions.append(
-                    DetectionDecision(decision.detection, False, "cooldown_active", timestamp)
+            if not cooldown.check(detection.source_id, timestamp):
+                pipeline_decisions.append(
+                    DetectionDecision(detection, False, "cooldown_active", timestamp)
                 )
                 continue
-
-            final_decisions.append(
-                DetectionDecision(decision.detection, True, "accepted", timestamp)
+            
+            pipeline_decisions.append(
+                DetectionDecision(detection, True, "accepted", timestamp)
             )
 
-        for decision in final_decisions:
+        for decision in pipeline_decisions:
             detection_logger.write(decision)
 
         accepted_detections = [
             decision.detection
-            for decision in final_decisions
+            for decision in pipeline_decisions
             if decision.accepted
         ]
         frame = render_detections(frame, accepted_detections)
@@ -119,3 +130,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
