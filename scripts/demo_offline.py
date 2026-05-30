@@ -18,7 +18,6 @@ from fire_detection_alarm.filtering.decision import DetectionDecision
 from fire_detection_alarm.filtering.detection_filter import DetectionFilter
 from fire_detection_alarm.filtering.temporal_filter import TemporalFilter
 from fire_detection_alarm.filtering.cooldown import CooldownTracker
-from fire_detection_alarm.filtering.falsenet_filter import FalseNetFilter
 from fire_detection_alarm.logging.detection_logger import DetectionLogger
 
 
@@ -42,12 +41,6 @@ def main():
     cooldown = CooldownTracker(
         cooldown_seconds=cfg["filtering"]["alarm_cooldown_seconds"]
     )
-    
-    falsenet_filter = None
-    if cfg.get("falsenet", {}).get("enabled", False):
-        falsenet_filter = FalseNetFilter(
-            threat_threshold=cfg["falsenet"]["threat_threshold"]
-        )
 
     log_path = cfg.get("logging", {}).get("detections_path", "outputs/detections.jsonl")
     detection_logger = DetectionLogger(log_path)
@@ -77,23 +70,15 @@ def main():
         static_decisions = [detection_filter.check(d, frame.shape) for d in yolo_detections]
         pipeline_decisions.extend(d for d in static_decisions if not d.accepted)
         
-        statically_accepted_detections = [d.detection for d in static_decisions if d.accepted]
-
-        if falsenet_filter:
-            falsenet_decisions = falsenet_filter.classify(frame, statically_accepted_detections)
-            pipeline_decisions.extend(d for d in falsenet_decisions if not d.accepted)
-            
-            post_falsenet_detections = [d.detection for d in falsenet_decisions if d.accepted]
-        else:
-            post_falsenet_detections = statically_accepted_detections
+        post_filter_detections = [d.detection for d in static_decisions if d.accepted]
 
         temporally_accepted = temporal_filter.check(
             "demo",
-            bool(post_falsenet_detections),
+            bool(post_filter_detections),
             timestamp=timestamp,
         )
 
-        for detection in post_falsenet_detections:
+        for detection in post_filter_detections:
             if not temporally_accepted:
                 pipeline_decisions.append(
                     DetectionDecision(detection, False, "not_persistent", timestamp)
@@ -130,4 +115,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -14,11 +14,6 @@ filtering:
   min_bbox_area_ratio: 0.002
   alarm_cooldown_seconds: 60
 
-falsenet:
-  enabled: true
-  model_path: "models/falsenet.pt" # Placeholder
-  threat_threshold: 0.5
-
 classes:
   allowed: [0, 1]  # smoke, fire from D-Fire
 

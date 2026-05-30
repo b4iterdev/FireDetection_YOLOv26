@@ -1,44 +1,76 @@
-# FireDetection_YOLOv26 Agent Orientation
+# PROJECT KNOWLEDGE BASE
 
-## Core Architecture
-This repository implements a modular fire detection pipeline using **Ultralytics YOLO** (specifically referenced as YOLOv26/YOLO26).
+**Generated:** 2026-05-29T07:12:00Z
+**Commit:** 958d756
+**Branch:** main
 
-**Data Flow:**
-`Input Source` (Image/Video) -> `YOLOEngine` (Inference) -> `Normalizer` (Schema) -> `TemporalFilter` (Logic) -> `Renderer` (Visuals)
+## OVERVIEW
+An end-to-end modular fire/smoke detection pipeline utilizing Ultralytics YOLOv26. It handles stream/file decoding, model inference, bounding box normalization, temporal status aggregation/filtering, and structured alerting.
 
-- **Entrypoint:** `scripts/demo_offline.py` - Runs inference on a file and displays results.
-- **Inference Wrapper:** `fire_detection_alarm/models/yolo_engine.py` (thin wrapper around `ultralytics.YOLO`).
-- **Data Model:** `fire_detection_alarm/detection/schema.py` defines the `Detection` dataclass used across the pipeline.
-- **Configuration:** `configs/default.yaml` stores thresholds, model paths, and device settings.
-
-## Developer Commands
-
-### Environment Setup
-No `requirements.txt` or `pyproject.toml` is currently tracked. Use:
-```bash
-pip install ultralytics torch torchvision opencv-python pyyaml pytest
+## STRUCTURE
+```
+{root}/
+├── configs/                  # Pipeline and threshold parameters
+│   └── default.yaml          # Config values (model path, device, confidence, etc.)
+├── scripts/                  # Running/training entry points
+│   ├── demo_offline.py       # Main system orchestrator / entrypoint
+│   └── train.py              # Model training orchestration utilities
+├── fire_detection_alarm/     # Core package
+│   ├── app/                  # Application configuration
+│   ├── models/               # YOLO inference wrapper
+│   ├── detection/            # Schema definition, normalization, and rendering
+│   ├── filtering/            # Temporal logic, decision, and cooldown gating
+│   └── logging/              # Structured logging for system events
+└── tests/                    # Pipeline validation tests (uses pytest & YOLO mocks)
 ```
 
-### Running the Demo
+## WHERE TO LOOK
+| Task | Location | Notes |
+|------|----------|-------|
+| Pipeline Execution | `scripts/demo_offline.py` | Controls inputs -> inference -> filtering -> output loop |
+| YOLO Inference Wrapper | `fire_detection_alarm/models/yolo_engine.py` | Handles `predict()` via `ultralytics.YOLO` |
+| Bounding Box Mapping | `fire_detection_alarm/detection/normalizer.py` | Maps raw bounding boxes into unified `Detection` schemas |
+| Spatiotemporal Filtering | `fire_detection_alarm/filtering/` | Spatial logic (bbox area checks), temporal logic (persistence) |
+| Configuration | `fire_detection_alarm/app/config.py` | Reads and maps configs from yaml to app settings |
+
+## CODE MAP
+| Symbol | Type | Location | Role |
+|--------|------|----------|------|
+| `Detection` | Class | `fire_detection_alarm/detection/schema.py` | Canonical model representation of a frame prediction |
+| `YOLOEngine` | Class | `fire_detection_alarm/models/yolo_engine.py` | Performs frame inference, configurable via device/imgsz |
+| `normalize_yolo_output` | Function | `fire_detection_alarm/detection/normalizer.py` | Parses raw tensor models to structured `Detection` format |
+| `DetectionFilter` | Class | `fire_detection_alarm/filtering/detection_filter.py` | Filters predictions by labels, confidence, and box area ratio |
+| `TemporalFilter` | Class | `fire_detection_alarm/filtering/temporal_filter.py` | Aggregates across multiple frames to confirm persistent alarms |
+| `BaseSource` | Class | `fire_detection_alarm/inputs/base.py` | Base abstract source contract (`read()`, `release()`) |
+| `render_detections` | Function | `fire_detection_alarm/detection/renderer.py` | Annotates frames with detected bounding boxes and labels |
+
+## CONVENTIONS
+- **Canonical Data Schema**: Always pass lists of `Detection` instances rather than raw dictionary/list objects between pipeline stages.
+- **Model Classes**: The pipeline strictly expects indices `0` (smoke) and `1` (fire) mapped from datasets.
+- **Source Interface**: New stream components (e.g., RTSP, webcam) must inherit from `BaseSource` and implement `read()` / `release()`.
+
+## ANTI-PATTERNS (THIS PROJECT)
+- **Hardcoding Configuration**: Never hardcode image size (imgsz), device (`cpu`, `cuda`), or paths. Always parse via `app.config`.
+- **Suppressing Type Checks**: Do not use `as any` or disable types; maintain explicit python type annotation correctness.
+- **Tracking Model Weights**: Never commit YOLO models (e.g. `.pt` weights under `models/`) directly into the repository.
+- **Bypassing Normalization**: Never feed raw outputs from models straight to filters without passing through the normalizer first.
+
+## UNIQUE STYLES
+- **Interchangeable Naming**: `YOLOv26` and `YOLO26` are used interchangeably to refer to Ultralytics-based models.
+- **Zero-GPU Testing**: Tests use `unittest.mock` to mock `YOLO` engine predictions to allow complete pipeline unit testing in standard CI environments without GPU dependencies.
+
+## COMMANDS
 ```bash
-python scripts/demo_offline.py --input <path_to_video_or_image> --model models/fire_yolov26.pt
+# Setup dependencies (inside project venv)
+venv/bin/pip install ultralytics torch torchvision opencv-python pyyaml pytest
+
+# Run demo with external weights (not tracked in Git)
+PYTHONPATH=. venv/bin/python scripts/demo_offline.py --input path/to/video.mp4 --model models/fire_yolov26.pt
+
+# Run pytest suite (package imports require PYTHONPATH)
+PYTHONPATH=. venv/bin/python -m pytest -q
 ```
-*Note: The model weights `models/fire_yolov26.pt` are NOT tracked in the repo and must be provided externally.*
 
-### Testing
-Tests are located in `tests/` and use `pytest`.
-```bash
-pytest -q                         # Run all tests
-pytest tests/test_yolo_engine.py  # Run specific test file
-```
-*Note: `test_yolo_engine.py` mocks the YOLO model, so tests do not require a GPU or real weights.*
-
-## Repo-Specific Quirks
-- **YOLOv26/YOLO26:** The repo uses these terms interchangeably. It refers to the newer Ultralytics end-to-end models.
-- **Config Sync:** `configs/default.yaml` defines `image_size: 640`, but the demo currently defaults to 640 internally rather than explicitly passing this config value to the model.
-- **Device Handling:** The config uses `device: "auto"`. Ultralytics handles this by checking for CUDA availability.
-- **Model Classes:** The system expects classes `[0: smoke, 1: fire]` as defined in `dataset/D-Fire/data.yaml`.
-
-## Key Documentation
-- `docs/superpowers/specs/2026-05-27-fire-detection-alarm-system-design.md`: Full system architecture and future roadmap (FalseNet, RTSP, Cloud).
-- `docs/superpowers/plans/2026-05-27-fire-detection-milestone-1-2.md`: Current implementation progress and tech stack.
+## NOTES
+- **Image Size Sync**: `configs/default.yaml` specifies `image_size: 640`, but the offline demo defaults to `640` internally if not explicitly defined. Always check parameter synchronization.
+- **Runtime Environment**: Use the repo `venv` and set `PYTHONPATH=.` when running scripts/tests from repo root so `fire_detection_alarm` imports resolve correctly.
