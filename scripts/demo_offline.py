@@ -16,6 +16,7 @@ from fire_detection_alarm.inputs.video_source import VideoSource
 from fire_detection_alarm.inputs.image_source import ImageSource
 from fire_detection_alarm.filtering.decision import DetectionDecision
 from fire_detection_alarm.filtering.detection_filter import DetectionFilter
+from fire_detection_alarm.filtering.behavior_tracker import BehaviorTracker
 from fire_detection_alarm.filtering.temporal_filter import TemporalFilter
 from fire_detection_alarm.filtering.cooldown import CooldownTracker
 from fire_detection_alarm.logging.detection_logger import DetectionLogger
@@ -33,6 +34,12 @@ def main():
         allowed_class_ids=cfg["classes"]["allowed"],
         min_confidence=cfg["inference"]["confidence_threshold"],
         min_bbox_area_ratio=cfg["filtering"]["min_bbox_area_ratio"],
+    )
+    behavior_tracker = BehaviorTracker(
+        min_track_frames=cfg["behavior_tracking"]["min_track_frames"],
+        max_stable_growth_ratio=cfg["behavior_tracking"]["max_stable_growth_ratio"],
+        max_non_hazard_area_ratio=cfg["behavior_tracking"]["max_non_hazard_area_ratio"],
+        min_growth_ratio=cfg["behavior_tracking"]["min_growth_ratio"],
     )
     temporal_filter = TemporalFilter(
         min_seconds=cfg["filtering"]["min_persistence_seconds"],
@@ -70,7 +77,11 @@ def main():
         static_decisions = [detection_filter.check(d, frame.shape) for d in yolo_detections]
         pipeline_decisions.extend(d for d in static_decisions if not d.accepted)
         
-        post_filter_detections = [d.detection for d in static_decisions if d.accepted]
+        statically_accepted_detections = [d.detection for d in static_decisions if d.accepted]
+        behavior_decisions = behavior_tracker.check(statically_accepted_detections, frame.shape)
+        pipeline_decisions.extend(d for d in behavior_decisions if not d.accepted)
+
+        post_filter_detections = [d.detection for d in behavior_decisions if d.accepted]
 
         temporally_accepted = temporal_filter.check(
             "demo",

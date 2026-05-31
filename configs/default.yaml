@@ -14,8 +14,14 @@ filtering:
   min_bbox_area_ratio: 0.002
   alarm_cooldown_seconds: 60
 
+behavior_tracking:
+  min_track_frames: 3
+  max_stable_growth_ratio: 0.1
+  max_non_hazard_area_ratio: 0.01
+  min_growth_ratio: 0.5
+
 classes:
-  allowed: [0, 1]  # smoke, fire from D-Fire
+  allowed: [0, 1]
 
 logging:
   detections_path: "outputs/detections.jsonl"
