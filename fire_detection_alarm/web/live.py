@@ -9,7 +9,6 @@ from fire_detection_alarm.app.config import load_config
 from fire_detection_alarm.detection.normalizer import normalize_yolo_output
 from fire_detection_alarm.detection.renderer import render_detections
 from fire_detection_alarm.filtering.behavior_tracker import BehaviorTracker
-from fire_detection_alarm.filtering.cooldown import CooldownTracker
 from fire_detection_alarm.filtering.decision import DetectionDecision
 from fire_detection_alarm.filtering.detection_filter import DetectionFilter
 from fire_detection_alarm.filtering.temporal_filter import TemporalFilter
@@ -34,7 +33,6 @@ class LiveDetectionSession:
         self.detection_filter = None
         self.behavior_tracker = None
         self.temporal_filter = None
-        self.cooldown = None
         self.cfg = None
 
     def start(self, payload: dict[str, object]) -> dict[str, object]:
@@ -57,7 +55,6 @@ class LiveDetectionSession:
             self.cfg["filtering"]["min_persistence_seconds"],
             self.cfg["filtering"]["min_consecutive_frames"],
         )
-        self.cooldown = CooldownTracker(self.cfg["filtering"]["alarm_cooldown_seconds"])
         self.capture = cv2.VideoCapture(source)
         self.status_state = LiveStatus(running=True, source_type=str(payload["source_type"]))
         return self.status()
@@ -91,8 +88,6 @@ class LiveDetectionSession:
         assert self.detection_filter is not None
         assert self.behavior_tracker is not None
         assert self.temporal_filter is not None
-        assert self.cooldown is not None
-
         frame_id = self.status_state.frame_count
         timestamp = time.time()
         results = self.engine.predict(
@@ -115,9 +110,6 @@ class LiveDetectionSession:
         for detection in post_filter_detections:
             if not temporally_accepted:
                 decisions.append(DetectionDecision(detection, False, "not_persistent", timestamp))
-                continue
-            if not self.cooldown.check(detection.source_id, timestamp):
-                decisions.append(DetectionDecision(detection, False, "cooldown_active", timestamp))
                 continue
             decisions.append(DetectionDecision(detection, True, "accepted", timestamp))
 

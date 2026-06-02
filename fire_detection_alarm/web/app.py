@@ -48,7 +48,7 @@ def create_app(
 
     @app.get("/")
     def index() -> Any:
-        return flask.render_template("index.html", default_model="models/fire_yolov26.pt")
+        return flask.render_template("live.html", show_source_controls=True)
 
     @app.post("/process")
     def process_upload() -> Any:
@@ -62,7 +62,7 @@ def create_app(
 
         if input_path.suffix.lower() in {".mp4", ".avi", ".mov", ".mkv"}:
             live.start({"source_type": "video_file", "file_path": str(input_path)})
-            return flask.render_template("live.html")
+            return flask.render_template("live.html", show_source_controls=False)
 
         model_path = flask.request.form.get("model_path") or "models/fire_yolov26.pt"
         result = runner.run(input_path, model_path)
@@ -74,7 +74,7 @@ def create_app(
 
     @app.get("/live")
     def live_page() -> Any:
-        return flask.render_template("live.html")
+        return flask.render_template("live.html", show_source_controls=True)
 
     @app.post("/api/live/start")
     def live_start() -> Any:

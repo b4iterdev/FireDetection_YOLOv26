@@ -9,7 +9,6 @@ from fire_detection_alarm.app.config import load_config
 from fire_detection_alarm.detection.normalizer import normalize_yolo_output
 from fire_detection_alarm.detection.renderer import render_detections
 from fire_detection_alarm.filtering.behavior_tracker import BehaviorTracker
-from fire_detection_alarm.filtering.cooldown import CooldownTracker
 from fire_detection_alarm.filtering.decision import DetectionDecision
 from fire_detection_alarm.filtering.detection_filter import DetectionFilter
 from fire_detection_alarm.filtering.temporal_filter import TemporalFilter
@@ -55,7 +54,6 @@ class WebPipelineRunner:
             min_seconds=cfg["filtering"]["min_persistence_seconds"],
             min_frames=cfg["filtering"]["min_consecutive_frames"],
         )
-        cooldown = CooldownTracker(cooldown_seconds=cfg["filtering"]["alarm_cooldown_seconds"])
         logger = DetectionLogger(self.log_dir / f"{input_path.stem}.jsonl")
 
         source = self._make_source(input_path)
@@ -78,7 +76,6 @@ class WebPipelineRunner:
                     detection_filter=detection_filter,
                     behavior_tracker=behavior_tracker,
                     temporal_filter=temporal_filter,
-                    cooldown=cooldown,
                 )
                 for decision in frame_decisions:
                     logger.write(decision)
@@ -103,7 +100,6 @@ class WebPipelineRunner:
         detection_filter: DetectionFilter,
         behavior_tracker: BehaviorTracker,
         temporal_filter: TemporalFilter,
-        cooldown: CooldownTracker,
     ) -> list[DetectionDecision]:
         results = engine.predict(
             frame,
@@ -127,9 +123,6 @@ class WebPipelineRunner:
         for detection in post_filter_detections:
             if not temporally_accepted:
                 pipeline_decisions.append(DetectionDecision(detection, False, "not_persistent", timestamp))
-                continue
-            if not cooldown.check(detection.source_id, timestamp):
-                pipeline_decisions.append(DetectionDecision(detection, False, "cooldown_active", timestamp))
                 continue
             pipeline_decisions.append(DetectionDecision(detection, True, "accepted", timestamp))
 

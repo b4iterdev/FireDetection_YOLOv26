@@ -37,7 +37,7 @@ class FakeLiveSession:
         yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\nfake\r\n"
 
 
-def test_web_index_renders_upload_form(tmp_path: Path):
+def test_web_index_renders_live_upload_player(tmp_path: Path):
     app = create_app(upload_dir=tmp_path / "uploads", result_dir=tmp_path / "results")
     client = app.test_client()
 
@@ -47,7 +47,8 @@ def test_web_index_renders_upload_form(tmp_path: Path):
 
     assert response.status_code == 200
     assert "Upload image or video" in body
-    assert "model_path" in body
+    assert "Live Detection Player" in body
+    assert "model_path" not in body
 
 
 def test_web_upload_processes_file_with_pipeline_runner(tmp_path: Path):
@@ -92,6 +93,7 @@ def test_video_upload_starts_live_playback_instead_of_batch_processing(tmp_path:
 
     assert response.status_code == 200
     assert "Live Detection Player" in body
+    assert "Source Type" not in body
     assert "Processing complete" not in body
     assert live_session.started_payload["source_type"] == "video_file"
 

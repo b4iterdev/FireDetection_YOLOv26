@@ -19,7 +19,7 @@ An end-to-end modular fire/smoke detection pipeline utilizing Ultralytics YOLOv2
 │   ├── app/                  # Application configuration
 │   ├── models/               # YOLO inference wrapper
 │   ├── detection/            # Schema definition, normalization, and rendering
-│   ├── filtering/            # Temporal logic, decision, and cooldown gating
+│   ├── filtering/            # Temporal logic, behavior tracking, and decisions
 │   └── logging/              # Structured logging for system events
 └── tests/                    # Pipeline validation tests (uses pytest & YOLO mocks)
 ```

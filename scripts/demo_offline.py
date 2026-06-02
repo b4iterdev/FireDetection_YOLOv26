@@ -18,7 +18,6 @@ from fire_detection_alarm.filtering.decision import DetectionDecision
 from fire_detection_alarm.filtering.detection_filter import DetectionFilter
 from fire_detection_alarm.filtering.behavior_tracker import BehaviorTracker
 from fire_detection_alarm.filtering.temporal_filter import TemporalFilter
-from fire_detection_alarm.filtering.cooldown import CooldownTracker
 from fire_detection_alarm.logging.detection_logger import DetectionLogger
 
 
@@ -45,10 +44,6 @@ def main():
         min_seconds=cfg["filtering"]["min_persistence_seconds"],
         min_frames=cfg["filtering"]["min_consecutive_frames"],
     )
-    cooldown = CooldownTracker(
-        cooldown_seconds=cfg["filtering"]["alarm_cooldown_seconds"]
-    )
-
     log_path = cfg.get("logging", {}).get("detections_path", "outputs/detections.jsonl")
     detection_logger = DetectionLogger(log_path)
     
@@ -96,12 +91,6 @@ def main():
                 )
                 continue
 
-            if not cooldown.check(detection.source_id, timestamp):
-                pipeline_decisions.append(
-                    DetectionDecision(detection, False, "cooldown_active", timestamp)
-                )
-                continue
-            
             pipeline_decisions.append(
                 DetectionDecision(detection, True, "accepted", timestamp)
             )

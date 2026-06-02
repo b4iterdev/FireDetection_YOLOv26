@@ -8,7 +8,21 @@
   <body>
     <main class="container">
       <h1>Live Detection Player</h1>
+      <p>Upload image or video input, run live detection, and review alarms while the video plays.</p>
+
       <section class="card controls">
+        <h2>Upload video for live detection</h2>
+        <form action="{{ url_for('process_upload') }}" method="post" enctype="multipart/form-data">
+          <label>Input file
+            <input type="file" name="file" accept="image/*,video/*" required>
+          </label>
+          <button type="submit">Run detection</button>
+        </form>
+      </section>
+
+      {% if show_source_controls %}
+      <section class="card controls">
+        <h2>Manual live source</h2>
         <label>Source Type
           <select id="source_type">
             <option value="webcam">Webcam</option>
@@ -22,6 +36,7 @@
         <button type="button" onclick="startLive()">Start</button>
         <button type="button" onclick="stopLive()">Stop</button>
       </section>
+      {% endif %}
       <section class="card">
         <img id="live_player" class="live-player" src="{{ url_for('stream') }}" alt="Live detection stream">
       </section>
