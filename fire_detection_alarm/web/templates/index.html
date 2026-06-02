@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Fire Detection Web UI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <main class="container">
+      <h1>Fire Detection Web UI</h1>
+      <p>Upload image or video input, run the detection pipeline, and review alarms.</p>
+      {% if error %}<p class="error">{{ error }}</p>{% endif %}
+      <form action="{{ url_for('process_upload') }}" method="post" enctype="multipart/form-data" class="card">
+        <label>
+          Input file
+          <input type="file" name="file" accept="image/*,video/*" required>
+        </label>
+        <label>
+          Model path
+          <input type="text" name="model_path" value="{{ default_model }}">
+        </label>
+        <button type="submit">Run detection</button>
+      </form>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Live Detection Player</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <main class="container">
+      <h1>Live Detection Player</h1>
+      <section class="card controls">
+        <label>Source Type
+          <select id="source_type">
+            <option value="webcam">Webcam</option>
+            <option value="video_file">Video File</option>
+            <option value="rtsp">RTSP</option>
+          </select>
+        </label>
+        <label>Camera Index <input id="camera_index" type="number" value="0"></label>
+        <label>Video File Path <input id="file_path" type="text" placeholder="outputs/web/uploads/sample.mp4"></label>
+        <label>RTSP URL <input id="rtsp_url" name="rtsp_url" type="text" placeholder="rtsp://camera/stream"></label>
+        <button type="button" onclick="startLive()">Start</button>
+        <button type="button" onclick="stopLive()">Stop</button>
+      </section>
+      <section class="card">
+        <img id="live_player" class="live-player" src="{{ url_for('stream') }}" alt="Live detection stream">
+      </section>
+      <section class="card">
+        <h2>Status</h2>
+        <pre id="status">Loading...</pre>
+      </section>
+    </main>
+    <script>
+      async function startLive() {
+        const sourceType = document.getElementById('source_type').value;
+        const payload = { source_type: sourceType };
+        if (sourceType === 'webcam') payload.camera_index = Number(document.getElementById('camera_index').value || 0);
+        if (sourceType === 'video_file') payload.file_path = document.getElementById('file_path').value;
+        if (sourceType === 'rtsp') payload.rtsp_url = document.getElementById('rtsp_url').value;
+        const response = await fetch('/api/live/start', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+        document.getElementById('status').textContent = JSON.stringify(await response.json(), null, 2);
+        document.getElementById('live_player').src = '/stream.mjpeg?ts=' + Date.now();
+      }
+
+      async function stopLive() {
+        const response = await fetch('/api/live/stop', { method: 'POST' });
+        document.getElementById('status').textContent = JSON.stringify(await response.json(), null, 2);
+      }
+
+      async function refreshStatus() {
+        const response = await fetch('/api/live/status');
+        document.getElementById('status').textContent = JSON.stringify(await response.json(), null, 2);
+      }
+
+      setInterval(refreshStatus, 1000);
+      refreshStatus();
+    </script>
+  </body>
+</html>

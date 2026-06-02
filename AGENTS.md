@@ -62,10 +62,16 @@ An end-to-end modular fire/smoke detection pipeline utilizing Ultralytics YOLOv2
 ## COMMANDS
 ```bash
 # Setup dependencies (inside project venv)
-venv/bin/pip install ultralytics torch torchvision opencv-python pyyaml pytest
+venv/bin/pip install ultralytics torch torchvision opencv-python pyyaml pytest flask
 
 # Run demo with external weights (not tracked in Git)
 PYTHONPATH=. venv/bin/python scripts/demo_offline.py --input path/to/video.mp4 --model models/fire_yolov26.pt
+
+# Run local web interface
+PYTHONPATH=. venv/bin/python scripts/web_app.py
+
+# Open live player after starting web interface
+# http://127.0.0.1:5000/live
 
 # Run pytest suite (package imports require PYTHONPATH)
 PYTHONPATH=. venv/bin/python -m pytest -q

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Detection Result</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <main class="container">
+      <h1>Processing complete</h1>
+      <p><strong>Accepted alarms:</strong> {{ result.accepted_count }}</p>
+      <p><a href="{{ url_for('outputs', filename=output_name) }}">Download annotated output</a></p>
+
+      <section class="card">
+        <h2>Decisions</h2>
+        <table>
+          <thead>
+            <tr><th>Frame</th><th>Class</th><th>Confidence</th><th>Accepted</th><th>Reason</th></tr>
+          </thead>
+          <tbody>
+            {% for decision in result.decisions %}
+              <tr>
+                <td>{{ decision.detection.frame_id }}</td>
+                <td>{{ decision.detection.class_name }}</td>
+                <td>{{ "%.2f"|format(decision.detection.confidence) }}</td>
+                <td>{{ decision.accepted }}</td>
+                <td>{{ decision.reason }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5">No detection decisions recorded.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+
+      <p><a href="{{ url_for('index') }}">Process another file</a></p>
+    </main>
+  </body>
+</html>
