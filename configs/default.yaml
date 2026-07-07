@@ -1,6 +1,6 @@
 model:
   path: "models/fire_yolov26.pt"
-  device: "auto"
+  device: "mps"
   image_size: 640
 
 inference:

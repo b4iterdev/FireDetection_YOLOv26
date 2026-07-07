@@ -44,7 +44,7 @@ def create_app(
     result_path.mkdir(parents=True, exist_ok=True)
     log_path.mkdir(parents=True, exist_ok=True)
     runner = pipeline_runner or WebPipelineRunner(result_path, log_path)
-    live = live_session or LiveDetectionSession()
+    live = live_session or LiveDetectionSession(result_path)
 
     @app.get("/")
     def index() -> Any:

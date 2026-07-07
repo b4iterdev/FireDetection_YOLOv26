@@ -1,13 +1,15 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import time
-from typing import Any
+from collections.abc import Iterable
 
 import cv2
+import numpy as np
 
 from fire_detection_alarm.app.config import load_config
 from fire_detection_alarm.detection.normalizer import normalize_yolo_output
 from fire_detection_alarm.detection.renderer import render_detections
+from fire_detection_alarm.detection.schema import Detection
 from fire_detection_alarm.filtering.behavior_tracker import BehaviorTracker
 from fire_detection_alarm.filtering.decision import DetectionDecision
 from fire_detection_alarm.filtering.detection_filter import DetectionFilter
@@ -24,6 +26,7 @@ class WebPipelineResult:
     output_path: Path
     decisions: list[DetectionDecision]
     accepted_count: int
+    triggered_frame_paths: list[Path] = field(default_factory=list)
 
 
 class WebPipelineRunner:
@@ -58,7 +61,8 @@ class WebPipelineRunner:
 
         source = self._make_source(input_path)
         decisions: list[DetectionDecision] = []
-        accepted_frames = []
+        annotated_frames: list[np.ndarray] = []
+        triggered_frame_paths: list[Path] = []
         frame_id = 0
 
         try:
@@ -80,19 +84,23 @@ class WebPipelineRunner:
                 for decision in frame_decisions:
                     logger.write(decision)
                 decisions.extend(frame_decisions)
+                all_detections = self._unique_detections(decision.detection for decision in frame_decisions)
                 accepted_detections = [decision.detection for decision in frame_decisions if decision.accepted]
-                accepted_frames.append(render_detections(frame, accepted_detections))
+                annotated_frame = render_detections(frame, all_detections, accepted_detections)
+                annotated_frames.append(annotated_frame)
+                if accepted_detections:
+                    triggered_frame_paths.append(self._write_triggered_frame(input_path, frame_id, annotated_frame))
                 frame_id += 1
         finally:
             source.release()
 
-        output_path = self._write_output(input_path, accepted_frames)
+        output_path = self._write_output(input_path, annotated_frames)
         accepted_count = len([decision for decision in decisions if decision.accepted])
-        return WebPipelineResult(input_path, output_path, decisions, accepted_count)
+        return WebPipelineResult(input_path, output_path, decisions, accepted_count, triggered_frame_paths)
 
     def _process_frame(
         self,
-        frame,
+        frame: np.ndarray,
         frame_id: int,
         source_id: str,
         engine: YOLOEngine,
@@ -133,7 +141,7 @@ class WebPipelineRunner:
             return ImageSource(str(input_path))
         return VideoSource(str(input_path))
 
-    def _write_output(self, input_path: Path, frames: list[Any]) -> Path:
+    def _write_output(self, input_path: Path, frames: list[np.ndarray]) -> Path:
         suffix = input_path.suffix.lower()
         if suffix in {".jpg", ".jpeg", ".png", ".bmp"}:
             output_path = self.result_dir / f"{input_path.stem}_annotated{suffix}"
@@ -152,3 +160,19 @@ class WebPipelineRunner:
         finally:
             writer.release()
         return output_path
+
+    def _write_triggered_frame(self, input_path: Path, frame_id: int, frame: np.ndarray) -> Path:
+        output_path = self.result_dir / f"{input_path.stem}_triggered_frame_{frame_id}.jpg"
+        _ = cv2.imwrite(str(output_path), frame)
+        return output_path
+
+    def _unique_detections(self, detections: Iterable[Detection]) -> list[Detection]:
+        unique_detections: list[Detection] = []
+        seen_ids: set[int] = set()
+        for detection in detections:
+            detection_id = id(detection)
+            if detection_id in seen_ids:
+                continue
+            seen_ids.add(detection_id)
+            unique_detections.append(detection)
+        return unique_detections

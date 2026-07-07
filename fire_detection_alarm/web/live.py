@@ -1,13 +1,15 @@
 from dataclasses import dataclass, asdict
 from pathlib import Path
 import time
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 
 import cv2
+import numpy as np
 
 from fire_detection_alarm.app.config import load_config
 from fire_detection_alarm.detection.normalizer import normalize_yolo_output
 from fire_detection_alarm.detection.renderer import render_detections
+from fire_detection_alarm.detection.schema import Detection
 from fire_detection_alarm.filtering.behavior_tracker import BehaviorTracker
 from fire_detection_alarm.filtering.decision import DetectionDecision
 from fire_detection_alarm.filtering.detection_filter import DetectionFilter
@@ -22,11 +24,14 @@ class LiveStatus:
     frame_count: int = 0
     accepted_count: int = 0
     latest_reason: str = ""
+    latest_triggered_frame: str = ""
     error: str = ""
 
 
 class LiveDetectionSession:
-    def __init__(self) -> None:
+    def __init__(self, result_dir: str | Path = "outputs/web/results") -> None:
+        self.result_dir = Path(result_dir)
+        self.result_dir.mkdir(parents=True, exist_ok=True)
         self.status_state = LiveStatus()
         self.capture = None
         self.engine = None
@@ -82,7 +87,7 @@ class LiveDetectionSession:
                 continue
             yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + encoded.tobytes() + b"\r\n"
 
-    def _process_frame(self, frame):
+    def _process_frame(self, frame: np.ndarray) -> np.ndarray:
         assert self.engine is not None
         assert self.cfg is not None
         assert self.detection_filter is not None
@@ -113,12 +118,29 @@ class LiveDetectionSession:
                 continue
             decisions.append(DetectionDecision(detection, True, "accepted", timestamp))
 
+        all_detections = self._unique_detections(decision.detection for decision in decisions)
         accepted_detections = [decision.detection for decision in decisions if decision.accepted]
         self.status_state.frame_count += 1
         self.status_state.accepted_count += len(accepted_detections)
         if decisions:
             self.status_state.latest_reason = decisions[-1].reason
-        return render_detections(frame, accepted_detections)
+        annotated = render_detections(frame, all_detections, accepted_detections)
+        if accepted_detections:
+            triggered_frame_path = self.result_dir / f"live_triggered_frame_{frame_id}.jpg"
+            if cv2.imwrite(str(triggered_frame_path), annotated):
+                self.status_state.latest_triggered_frame = f"/outputs/{triggered_frame_path.name}"
+        return annotated
+
+    def _unique_detections(self, detections: Iterable[Detection]) -> list[Detection]:
+        unique_detections: list[Detection] = []
+        seen_ids: set[int] = set()
+        for detection in detections:
+            detection_id = id(detection)
+            if detection_id in seen_ids:
+                continue
+            seen_ids.add(detection_id)
+            unique_detections.append(detection)
+        return unique_detections
 
     def _source_from_payload(self, payload: dict[str, object]):
         source_type = payload.get("source_type")
