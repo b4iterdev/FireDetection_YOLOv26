@@ -4,3 +4,4 @@ runs/
 __pycache__
 outputs
 test_main_trains_copies_best_model_and_reports_success_runs
+.omo
