@@ -1,12 +1,12 @@
 model:
   path: "models/fire_yolov26.pt"
-  device: "cpu"
+  device: "auto"
   image_size: 640
 
 inference:
   confidence_threshold: 0.65
   iou_threshold: 0.45
-  max_fps: 5
+  max_fps: 60
 
 filtering:
   min_persistence_seconds: 2.0

@@ -2,48 +2,96 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>Detection Result</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Detection Report | Firewatch</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   </head>
   <body>
-    <main class="container">
-      <h1>Processing complete</h1>
-      <p><strong>Accepted alarms:</strong> {{ result.accepted_count }}</p>
-      <p><a href="{{ url_for('outputs', filename=output_name) }}">Download annotated output</a></p>
-      {% if result.triggered_frame_paths %}
-        <section class="card">
-          <h2>Triggered Frames</h2>
-          <ul>
-            {% for frame_path in result.triggered_frame_paths %}
-              <li><a href="{{ url_for('outputs', filename=frame_path.name) }}">{{ frame_path.name }}</a></li>
-            {% endfor %}
-          </ul>
-        </section>
-      {% endif %}
+    <header class="site-header">
+      <a class="brand" href="{{ url_for('index') }}" aria-label="Firewatch dashboard"><span class="brand-mark" aria-hidden="true"></span><span>Firewatch <small>Detection Console</small></span></a>
+      <nav class="site-nav" aria-label="Primary navigation"><a href="{{ url_for('index') }}">Dashboard</a><a href="{{ url_for('live_page') }}">Live monitor</a></nav>
+    </header>
 
-      <section class="card">
-        <h2>Decisions</h2>
-        <table>
-          <thead>
-            <tr><th>Frame</th><th>Class</th><th>Confidence</th><th>Accepted</th><th>Reason</th></tr>
-          </thead>
-          <tbody>
-            {% for decision in result.decisions %}
-              <tr>
-                <td>{{ decision.detection.frame_id }}</td>
-                <td>{{ decision.detection.class_name }}</td>
-                <td>{{ "%.2f"|format(decision.detection.confidence) }}</td>
-                <td>{{ decision.accepted }}</td>
-                <td>{{ decision.reason }}</td>
-              </tr>
-            {% else %}
-              <tr><td colspan="5">No detection decisions recorded.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+    <main class="container report-page">
+      <section class="report-hero {% if result.accepted_count %}report-alert{% else %}report-clear{% endif %}">
+        <div class="outcome-mark" aria-hidden="true">{% if result.accepted_count %}!{% else %}✓{% endif %}</div>
+        <div>
+          <p class="eyebrow">Processing complete</p>
+          {% if result.accepted_count %}
+            <h1>{{ result.accepted_count }} accepted alarm{% if result.accepted_count != 1 %}s require{% else %} requires{% endif %} review</h1>
+            <p>Potential fire or smoke activity passed the configured filters. Review the evidence and decision audit below.</p>
+          {% else %}
+            <h1>No confirmed alarms detected</h1>
+            <p>The file was processed successfully and no candidate passed all configured filters.</p>
+          {% endif %}
+        </div>
+        <div class="report-actions">
+          {% if result.output_available %}<a class="button button-primary" href="{{ url_for('outputs', filename=output_name) }}">Open annotated output</a>{% endif %}
+          <a class="button button-secondary" href="{{ url_for('index') }}">Analyze another file</a>
+        </div>
       </section>
 
-      <p><a href="{{ url_for('index') }}">Process another file</a></p>
+      <section class="metric-grid" aria-label="Report summary">
+        <article class="metric-card"><span>Frames processed</span><strong>{{ result.frame_count }}</strong></article>
+        <article class="metric-card metric-critical"><span>Accepted alarms</span><strong>{{ result.accepted_count }}</strong></article>
+        <article class="metric-card"><span>Rejected candidates</span><strong>{{ result.rejected_count }}</strong></article>
+        <article class="metric-card"><span>Triggered frames</span><strong>{{ result.triggered_frame_count }}</strong></article>
+      </section>
+
+      <section class="report-grid">
+        <article class="panel source-summary">
+          <div class="section-heading"><div><p class="eyebrow">Source</p><h2>Analysis details</h2></div><span class="status-chip">{{ result.input_type }}</span></div>
+          <dl class="detail-list">
+            <div><dt>Input file</dt><dd>{{ result.input_filename }}</dd></div>
+            <div><dt>Processing time</dt><dd>{{ "%.2f"|format(result.processing_seconds) }} seconds</dd></div>
+            <div><dt>Highest confidence</dt><dd>{{ "%.1f"|format(result.max_confidence * 100) }}%</dd></div>
+            <div><dt>Output status</dt><dd>{% if result.output_available %}Available{% else %}No output file generated{% endif %}</dd></div>
+          </dl>
+        </article>
+
+        <article class="panel">
+          <p class="eyebrow">Distribution</p><h2>Accepted by class</h2>
+          {% if result.accepted_counts_by_class %}
+            <ul class="breakdown-list">{% for class_name, count in result.accepted_counts_by_class.items() %}<li><span>{{ class_name|title }}</span><strong>{{ count }}</strong></li>{% endfor %}</ul>
+          {% else %}<p class="empty-state">No classes produced an accepted alarm.</p>{% endif %}
+        </article>
+
+        <article class="panel">
+          <p class="eyebrow">Filter audit</p><h2>Decision reasons</h2>
+          {% if result.reason_counts %}
+            <ul class="breakdown-list">{% for reason, count in result.reason_counts.items() %}<li><span>{{ reason|replace('_', ' ')|title }}</span><strong>{{ count }}</strong></li>{% endfor %}</ul>
+          {% else %}<p class="empty-state">No detection decisions were recorded.</p>{% endif %}
+        </article>
+      </section>
+
+      <section class="panel evidence-section">
+        <div class="section-heading"><div><p class="eyebrow">Evidence</p><h2>Triggered frames</h2></div><span class="status-chip">{{ result.triggered_frame_count }} captured</span></div>
+        {% if result.triggered_frame_paths %}
+          <div class="evidence-grid">
+            {% for frame_path in result.triggered_frame_paths %}
+              <a class="evidence-card" href="{{ url_for('outputs', filename=frame_path.name) }}">
+                <img src="{{ url_for('outputs', filename=frame_path.name) }}" alt="Triggered detection frame {{ loop.index }}" loading="lazy">
+                <span>Frame evidence {{ loop.index }}</span>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}<p class="empty-state">No triggered frames were produced for this analysis.</p>{% endif %}
+      </section>
+
+      <details class="panel audit-panel">
+        <summary><span><span class="eyebrow">Detailed log</span><strong>Decision audit</strong></span><span>{{ result.decisions|length }} records</span></summary>
+        <div class="table-scroll">
+          <table>
+            <caption>Detection decisions recorded during processing</caption>
+            <thead><tr><th scope="col">Frame</th><th scope="col">Class</th><th scope="col">Confidence</th><th scope="col">Outcome</th><th scope="col">Reason</th></tr></thead>
+            <tbody>
+              {% for decision in result.decisions %}
+                <tr><td>{{ decision.detection.frame_id }}</td><td>{{ decision.detection.class_name|title }}</td><td>{{ "%.1f"|format(decision.detection.confidence * 100) }}%</td><td><span class="decision-pill {% if decision.accepted %}accepted{% else %}rejected{% endif %}">{% if decision.accepted %}Accepted{% else %}Rejected{% endif %}</span></td><td>{{ decision.reason|replace('_', ' ')|title }}</td></tr>
+              {% else %}<tr><td colspan="5" class="empty-cell">No detection decisions recorded.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </main>
   </body>
 </html>

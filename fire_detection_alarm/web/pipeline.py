@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 import time
+from collections import Counter
 from collections.abc import Iterable
 
 import cv2
@@ -15,7 +16,7 @@ from fire_detection_alarm.filtering.decision import DetectionDecision
 from fire_detection_alarm.filtering.detection_filter import DetectionFilter
 from fire_detection_alarm.filtering.temporal_filter import TemporalFilter
 from fire_detection_alarm.inputs.image_source import ImageSource
-from fire_detection_alarm.inputs.video_source import VideoSource
+from fire_detection_alarm.inputs.video_source import DEFAULT_VIDEO_FPS, VideoSource
 from fire_detection_alarm.logging.detection_logger import DetectionLogger
 from fire_detection_alarm.models.yolo_engine import YOLOEngine
 
@@ -27,6 +28,54 @@ class WebPipelineResult:
     decisions: list[DetectionDecision]
     accepted_count: int
     triggered_frame_paths: list[Path] = field(default_factory=list)
+    frame_count: int = 0
+    processing_seconds: float = 0.0
+
+    @property
+    def rejected_count(self) -> int:
+        return len([decision for decision in self.decisions if not decision.accepted])
+
+    @property
+    def triggered_frame_count(self) -> int:
+        return len(self.triggered_frame_paths)
+
+    @property
+    def reason_counts(self) -> dict[str, int]:
+        return dict(Counter(decision.reason for decision in self.decisions))
+
+    @property
+    def accepted_counts_by_class(self) -> dict[str, int]:
+        return dict(
+            Counter(
+                decision.detection.class_name
+                for decision in self.decisions
+                if decision.accepted
+            )
+        )
+
+    @property
+    def max_confidence(self) -> float:
+        confidences = [decision.detection.confidence for decision in self.decisions]
+        if not confidences:
+            return 0.0
+        return max(confidences)
+
+    @property
+    def input_filename(self) -> str:
+        return self.input_path.name
+
+    @property
+    def input_type(self) -> str:
+        suffix = self.input_path.suffix.lower()
+        if suffix in {".jpg", ".jpeg", ".png", ".bmp"}:
+            return "image"
+        if suffix in {".mp4", ".avi", ".mov", ".mkv"}:
+            return "video"
+        return "unknown"
+
+    @property
+    def output_available(self) -> bool:
+        return self.output_path.exists()
 
 
 class WebPipelineRunner:
@@ -59,13 +108,19 @@ class WebPipelineRunner:
         )
         logger = DetectionLogger(self.log_dir / f"{input_path.stem}.jsonl")
 
-        source = self._make_source(input_path)
+        processing_started = time.perf_counter()
         decisions: list[DetectionDecision] = []
-        annotated_frames: list[np.ndarray] = []
+        image_frame: np.ndarray | None = None
         triggered_frame_paths: list[Path] = []
+        output_path = self._output_path(input_path)
+        is_image = self._is_image_input(input_path)
+        source: ImageSource | VideoSource | None = None
+        writer: cv2.VideoWriter | None = None
         frame_id = 0
 
         try:
+            source = self._make_source(input_path)
+            video_fps = source.fps() if isinstance(source, VideoSource) else DEFAULT_VIDEO_FPS
             while True:
                 ret, frame = source.read()
                 if not ret or frame is None:
@@ -87,16 +142,40 @@ class WebPipelineRunner:
                 all_detections = self._unique_detections(decision.detection for decision in frame_decisions)
                 accepted_detections = [decision.detection for decision in frame_decisions if decision.accepted]
                 annotated_frame = render_detections(frame, all_detections, accepted_detections)
-                annotated_frames.append(annotated_frame)
+                if is_image:
+                    image_frame = annotated_frame
+                else:
+                    if writer is None:
+                        height, width = annotated_frame.shape[:2]
+                        writer = cv2.VideoWriter(
+                            str(output_path),
+                            cv2.VideoWriter.fourcc(*"avc1"),
+                            video_fps,
+                            (width, height),
+                        )
+                    writer.write(annotated_frame)
                 if accepted_detections:
                     triggered_frame_paths.append(self._write_triggered_frame(input_path, frame_id, annotated_frame))
                 frame_id += 1
         finally:
-            source.release()
+            if writer is not None:
+                writer.release()
+            if source is not None:
+                source.release()
 
-        output_path = self._write_output(input_path, annotated_frames)
+        if is_image and image_frame is not None:
+            _ = cv2.imwrite(str(output_path), image_frame)
+        processing_seconds = time.perf_counter() - processing_started
         accepted_count = len([decision for decision in decisions if decision.accepted])
-        return WebPipelineResult(input_path, output_path, decisions, accepted_count, triggered_frame_paths)
+        return WebPipelineResult(
+            input_path=input_path,
+            output_path=output_path,
+            decisions=decisions,
+            accepted_count=accepted_count,
+            triggered_frame_paths=triggered_frame_paths,
+            frame_count=frame_id,
+            processing_seconds=processing_seconds,
+        )
 
     def _process_frame(
         self,
@@ -136,30 +215,19 @@ class WebPipelineRunner:
 
         return pipeline_decisions
 
-    def _make_source(self, input_path: Path):
-        if input_path.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}:
+    def _make_source(self, input_path: Path) -> ImageSource | VideoSource:
+        if self._is_image_input(input_path):
             return ImageSource(str(input_path))
         return VideoSource(str(input_path))
 
-    def _write_output(self, input_path: Path, frames: list[np.ndarray]) -> Path:
-        suffix = input_path.suffix.lower()
-        if suffix in {".jpg", ".jpeg", ".png", ".bmp"}:
-            output_path = self.result_dir / f"{input_path.stem}_annotated{suffix}"
-            if frames:
-                _ = cv2.imwrite(str(output_path), frames[-1])
-            return output_path
+    def _is_image_input(self, input_path: Path) -> bool:
+        return input_path.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}
 
-        output_path = self.result_dir / f"{input_path.stem}_annotated.mp4"
-        if not frames:
-            return output_path
-        height, width = frames[0].shape[:2]
-        writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter.fourcc(*"mp4v"), 20.0, (width, height))
-        try:
-            for frame in frames:
-                writer.write(frame)
-        finally:
-            writer.release()
-        return output_path
+    def _output_path(self, input_path: Path) -> Path:
+        suffix = input_path.suffix.lower()
+        if self._is_image_input(input_path):
+            return self.result_dir / f"{input_path.stem}_annotated{suffix}"
+        return self.result_dir / f"{input_path.stem}_annotated.mp4"
 
     def _write_triggered_frame(self, input_path: Path, frame_id: int, frame: np.ndarray) -> Path:
         output_path = self.result_dir / f"{input_path.stem}_triggered_frame_{frame_id}.jpg"

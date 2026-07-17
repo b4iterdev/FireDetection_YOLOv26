@@ -2,71 +2,326 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>Live Detection Player</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Live Detection Player | Firewatch</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   </head>
   <body>
-    <main class="container">
-      <h1>Live Detection Player</h1>
-      <p>Upload image or video input, run live detection, and review alarms while the video plays.</p>
+    <header class="site-header">
+      <a class="brand" href="{{ url_for('index') }}" aria-label="Firewatch dashboard"><span class="brand-mark" aria-hidden="true"></span><span>Firewatch <small>Detection Console</small></span></a>
+      <nav class="site-nav" aria-label="Primary navigation"><a href="{{ url_for('index') }}">Dashboard</a><a class="active" href="{{ url_for('live_page') }}" aria-current="page">Live monitor</a></nav>
+    </header>
 
-      <section class="card controls">
-        <h2>Upload video for live detection</h2>
-        <form action="{{ url_for('process_upload') }}" method="post" enctype="multipart/form-data">
-          <label>Input file
-            <input type="file" name="file" accept="image/*,video/*" required>
-          </label>
-          <button type="submit">Run detection</button>
-        </form>
-      </section>
+    <main class="container live-page">
+      <section class="page-heading"><div><p class="eyebrow">Continuous monitoring</p><h1>Live Detection Player</h1><p>Connect your camera or a video source, inspect the annotated stream, and track confirmed alarms in real time.</p></div><span id="connection-chip" class="status-chip status-idle">Idle</span></section>
 
-      {% if show_source_controls %}
-      <section class="card controls">
-        <h2>Manual live source</h2>
-        <label>Source Type
+      <div id="live-error" class="alert alert-error" role="alert" hidden><strong>Live source error</strong><span id="live-error-message"></span></div>
+
+      <section class="live-layout">
+        {% if show_source_controls %}
+        <aside class="panel live-controls">
+          <p class="eyebrow">Source setup</p><h2>Connect a source</h2>
+          <label for="source_type">Source type</label>
           <select id="source_type">
-            <option value="webcam">Webcam</option>
-            <option value="video_file">Video File</option>
-            <option value="rtsp">RTSP</option>
+            <option value="webcam">This device's webcam</option>
+            <option value="video_file">Upload a video</option>
+            <option value="rtsp">RTSP camera</option>
           </select>
-        </label>
-        <label>Camera Index <input id="camera_index" type="number" value="0"></label>
-        <label>Video File Path <input id="file_path" type="text" placeholder="outputs/web/uploads/sample.mp4"></label>
-        <label>RTSP URL <input id="rtsp_url" name="rtsp_url" type="text" placeholder="rtsp://camera/stream"></label>
-        <button type="button" onclick="startLive()">Start</button>
-        <button type="button" onclick="stopLive()">Stop</button>
-      </section>
-      {% endif %}
-      <section class="card">
-        <img id="live_player" class="live-player" src="{{ url_for('stream') }}" alt="Live detection stream">
-      </section>
-      <section class="card">
-        <h2>Status</h2>
-        <pre id="status">Loading...</pre>
+
+          <div id="webcam-fields" class="source-fields">
+            <p class="field-help">Your browser will ask for camera permission. Frames are sent to this detector for annotation; the server camera is not used.</p>
+          </div>
+          <div id="video-fields" class="source-fields" hidden>
+            <label for="live-video-file">Video file</label>
+            <input id="live-video-file" type="file" accept=".mp4,.avi,.mov,.mkv,video/*">
+            <p class="field-help">Choose a video from this device. It will be uploaded before live playback starts.</p>
+          </div>
+          <div id="rtsp-fields" class="source-fields" hidden>
+            <label for="rtsp_url">RTSP URL</label>
+            <input id="rtsp_url" name="rtsp_url" type="text" placeholder="rtsp://camera/stream">
+          </div>
+          <div class="button-row"><button id="start-live" class="button button-primary" type="button">Start monitoring</button><button id="stop-live" class="button button-secondary" type="button">Stop</button></div>
+          <p class="field-help">Live monitoring continues while this page remains open.</p>
+        </aside>
+        {% endif %}
+
+        <section class="stream-column">
+          <div class="stream-frame"><div class="stream-toolbar"><span>Annotated stream</span><span id="stream-state">Waiting for source</span></div><img id="live_player" class="live-player" alt="Live detection stream"></div>
+          <video id="webcam-source" muted playsinline hidden></video>
+          <canvas id="webcam-canvas" hidden></canvas>
+          <section class="metric-grid live-metrics" aria-label="Live detection status" aria-live="polite">
+            <article class="metric-card"><span>Connection</span><strong id="status-running">Idle</strong></article>
+            <article class="metric-card"><span>Frames analyzed</span><strong id="status-frames">0</strong></article>
+            <article class="metric-card metric-critical"><span>Accepted alarms</span><strong id="status-accepted">0</strong></article>
+            <article class="metric-card"><span>Latest decision</span><strong id="status-reason">None</strong></article>
+          </section>
+          <a id="latest-evidence" class="evidence-link" href="#" hidden>Open latest triggered frame</a>
+          <details class="panel diagnostics"><summary>Raw session diagnostics</summary><pre id="status">Loading...</pre></details>
+        </section>
       </section>
     </main>
     <script>
+      const sourceType = document.getElementById('source_type');
+      const statusOutput = document.getElementById('status');
+      const errorBox = document.getElementById('live-error');
+      const errorMessage = document.getElementById('live-error-message');
+      const livePlayer = document.getElementById('live_player');
+      const webcamSource = document.getElementById('webcam-source');
+      const webcamCanvas = document.getElementById('webcam-canvas');
+      const maxFps = Math.max(Number({{ max_fps|default(5) }}), 1);
+      const captureSize = Math.max(Number({{ image_size|default(640) }}), 1);
+      const frameIntervalMs = 1000 / maxFps;
+      let webcamStream = null;
+      let webcamActive = false;
+      let webcamGeneration = 0;
+      let frameRequestController = null;
+      let annotatedFrameUrl = null;
+      let startGeneration = 0;
+
+      function updateSourceFields() {
+        if (!sourceType) return;
+        document.getElementById('webcam-fields').hidden = sourceType.value !== 'webcam';
+        document.getElementById('video-fields').hidden = sourceType.value !== 'video_file';
+        document.getElementById('rtsp-fields').hidden = sourceType.value !== 'rtsp';
+      }
+
+      function showError(message) {
+        errorMessage.textContent = message;
+        errorBox.hidden = !message;
+      }
+
+      function renderStatus(data) {
+        const running = Boolean(data.running);
+        document.getElementById('status-running').textContent = running ? 'Running' : 'Idle';
+        document.getElementById('status-frames').textContent = data.frame_count || 0;
+        document.getElementById('status-accepted').textContent = data.accepted_count || 0;
+        document.getElementById('status-reason').textContent = (data.latest_reason || 'None').replaceAll('_', ' ');
+        document.getElementById('stream-state').textContent = running ? 'Monitoring' : 'Waiting for source';
+        const chip = document.getElementById('connection-chip');
+        chip.textContent = running ? 'Running' : 'Idle';
+        chip.className = `status-chip ${running ? 'status-running' : 'status-idle'}`;
+        const evidence = document.getElementById('latest-evidence');
+        if (data.latest_triggered_frame) { evidence.href = data.latest_triggered_frame; evidence.hidden = false; } else { evidence.hidden = true; }
+        statusOutput.textContent = JSON.stringify(data, null, 2);
+        if (data.error) showError(data.error);
+      }
+
+      async function responseError(response) {
+        try {
+          const data = await response.json();
+          return data.error || 'The live source request failed.';
+        } catch (_error) {
+          return 'The live source request failed.';
+        }
+      }
+
+      async function requestJson(url, options) {
+        try {
+          const response = await fetch(url, options);
+          if (!response.ok) throw new Error(await responseError(response));
+          const data = await response.json();
+          renderStatus(data);
+          return data;
+        } catch (error) {
+          showError(error.message);
+          return null;
+        }
+      }
+
+      function releaseAnnotatedFrame() {
+        if (annotatedFrameUrl) URL.revokeObjectURL(annotatedFrameUrl);
+        annotatedFrameUrl = null;
+      }
+
+      function stopBrowserWebcam() {
+        webcamActive = false;
+        webcamGeneration += 1;
+        if (frameRequestController) frameRequestController.abort();
+        frameRequestController = null;
+        if (webcamStream) webcamStream.getTracks().forEach((track) => track.stop());
+        webcamStream = null;
+        webcamSource.srcObject = null;
+        releaseAnnotatedFrame();
+      }
+
+      function canvasBlob() {
+        return new Promise((resolve, reject) => {
+          webcamCanvas.toBlob((blob) => {
+            if (blob) resolve(blob); else reject(new Error('Could not capture a webcam frame.'));
+          }, 'image/jpeg', 0.85);
+        });
+      }
+
+      async function stopAfterWebcamError(message) {
+        stopBrowserWebcam();
+        await requestJson('/api/live/stop', { method: 'POST' });
+        showError(message);
+      }
+
+      async function captureWebcamFrame(generation) {
+        if (!webcamActive || generation !== webcamGeneration) return;
+        const startedAt = performance.now();
+        let requestController = null;
+        try {
+          if (webcamSource.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+            const scale = Math.min(1, captureSize / Math.max(webcamSource.videoWidth, webcamSource.videoHeight));
+            webcamCanvas.width = Math.max(1, Math.round(webcamSource.videoWidth * scale));
+            webcamCanvas.height = Math.max(1, Math.round(webcamSource.videoHeight * scale));
+            webcamCanvas.getContext('2d').drawImage(webcamSource, 0, 0, webcamCanvas.width, webcamCanvas.height);
+            const frame = await canvasBlob();
+            if (!webcamActive || generation !== webcamGeneration) return;
+            requestController = new AbortController();
+            frameRequestController = requestController;
+            const response = await fetch('/api/live/frame', {
+              method: 'POST',
+              headers: { 'Content-Type': 'image/jpeg' },
+              body: frame,
+              signal: requestController.signal,
+            });
+            if (!response.ok) throw new Error(await responseError(response));
+            const annotatedFrame = await response.blob();
+            if (!webcamActive || generation !== webcamGeneration) return;
+            releaseAnnotatedFrame();
+            annotatedFrameUrl = URL.createObjectURL(annotatedFrame);
+            livePlayer.src = annotatedFrameUrl;
+          }
+        } catch (error) {
+          if (error.name !== 'AbortError') await stopAfterWebcamError(error.message);
+          return;
+        } finally {
+          if (frameRequestController === requestController) frameRequestController = null;
+        }
+        if (!webcamActive || generation !== webcamGeneration) return;
+        const delay = Math.max(0, frameIntervalMs - (performance.now() - startedAt));
+        window.setTimeout(() => captureWebcamFrame(generation), delay);
+      }
+
+      function cameraErrorMessage(error) {
+        if (!window.isSecureContext) return 'Camera access requires HTTPS or localhost.';
+        if (error.name === 'NotAllowedError') return 'Camera permission was denied. Allow camera access and try again.';
+        if (error.name === 'NotFoundError') return 'No camera was found on this device.';
+        if (error.name === 'NotReadableError') return 'The camera is already in use or could not be opened.';
+        return error.message || 'Could not access this device camera.';
+      }
+
+      function startIsCurrent(generation, expectedSource) {
+        return generation === startGeneration && sourceType.value === expectedSource;
+      }
+
+      async function startWebcam(generation) {
+        if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+          showError('Camera access requires HTTPS or localhost in a supported browser.');
+          return;
+        }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          if (!startIsCurrent(generation, 'webcam')) {
+            stream.getTracks().forEach((track) => track.stop());
+            return;
+          }
+          webcamStream = stream;
+          webcamSource.srcObject = stream;
+          await webcamSource.play();
+          if (!startIsCurrent(generation, 'webcam')) {
+            stopBrowserWebcam();
+            return;
+          }
+          const data = await requestJson('/api/live/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source_type: 'webcam' }),
+          });
+          if (!data) { stopBrowserWebcam(); return; }
+          if (!startIsCurrent(generation, 'webcam')) {
+            stopBrowserWebcam();
+            await requestJson('/api/live/stop', { method: 'POST' });
+            return;
+          }
+          showError('');
+          webcamActive = true;
+          const frameGeneration = ++webcamGeneration;
+          captureWebcamFrame(frameGeneration);
+        } catch (error) {
+          stopBrowserWebcam();
+          if (startIsCurrent(generation, 'webcam')) showError(cameraErrorMessage(error));
+        }
+      }
+
+      async function startVideoUpload(generation) {
+        const file = document.getElementById('live-video-file').files[0];
+        if (!file) { showError('Choose a video file from this device.'); return; }
+        const form = new FormData();
+        form.append('file', file);
+        const data = await requestJson('/api/live/upload', { method: 'POST', body: form });
+        if (!startIsCurrent(generation, 'video_file')) {
+          if (data) await requestJson('/api/live/stop', { method: 'POST' });
+          return;
+        }
+        if (data) {
+          showError('');
+          livePlayer.src = '/stream.mjpeg?ts=' + Date.now();
+        }
+      }
+
+      async function startRtsp(generation) {
+        const rtspUrl = document.getElementById('rtsp_url').value.trim();
+        if (!rtspUrl) { showError('Enter an RTSP URL.'); return; }
+        const data = await requestJson('/api/live/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source_type: 'rtsp', rtsp_url: rtspUrl }),
+        });
+        if (!startIsCurrent(generation, 'rtsp')) {
+          if (data) await requestJson('/api/live/stop', { method: 'POST' });
+          return;
+        }
+        if (data) {
+          showError('');
+          livePlayer.src = '/stream.mjpeg?ts=' + Date.now();
+        }
+      }
+
       async function startLive() {
-        const sourceType = document.getElementById('source_type').value;
-        const payload = { source_type: sourceType };
-        if (sourceType === 'webcam') payload.camera_index = Number(document.getElementById('camera_index').value || 0);
-        if (sourceType === 'video_file') payload.file_path = document.getElementById('file_path').value;
-        if (sourceType === 'rtsp') payload.rtsp_url = document.getElementById('rtsp_url').value;
-        const response = await fetch('/api/live/start', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-        document.getElementById('status').textContent = JSON.stringify(await response.json(), null, 2);
-        document.getElementById('live_player').src = '/stream.mjpeg?ts=' + Date.now();
+        const generation = ++startGeneration;
+        const selectedSource = sourceType.value;
+        stopBrowserWebcam();
+        livePlayer.removeAttribute('src');
+        startButton.disabled = true;
+        try {
+          if (selectedSource === 'webcam') await startWebcam(generation);
+          else if (selectedSource === 'video_file') await startVideoUpload(generation);
+          else if (selectedSource === 'rtsp') await startRtsp(generation);
+        } finally {
+          if (generation === startGeneration) startButton.disabled = false;
+        }
       }
 
       async function stopLive() {
-        const response = await fetch('/api/live/stop', { method: 'POST' });
-        document.getElementById('status').textContent = JSON.stringify(await response.json(), null, 2);
+        startGeneration += 1;
+        startButton.disabled = false;
+        stopBrowserWebcam();
+        livePlayer.removeAttribute('src');
+        const data = await requestJson('/api/live/stop', { method: 'POST' });
+        if (data) showError('');
       }
 
-      async function refreshStatus() {
-        const response = await fetch('/api/live/status');
-        document.getElementById('status').textContent = JSON.stringify(await response.json(), null, 2);
-      }
+      function refreshStatus() { return requestJson('/api/live/status'); }
 
+      if (sourceType) {
+        sourceType.addEventListener('change', async () => {
+          await stopLive();
+          updateSourceFields();
+        });
+        updateSourceFields();
+      }
+      const startButton = document.getElementById('start-live');
+      const stopButton = document.getElementById('stop-live');
+      if (startButton) startButton.addEventListener('click', startLive);
+      if (stopButton) stopButton.addEventListener('click', stopLive);
+      window.addEventListener('beforeunload', () => {
+        stopBrowserWebcam();
+        navigator.sendBeacon('/api/live/stop');
+      });
       setInterval(refreshStatus, 1000);
       refreshStatus();
     </script>

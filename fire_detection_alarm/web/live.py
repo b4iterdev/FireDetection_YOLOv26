@@ -41,8 +41,68 @@ class LiveDetectionSession:
         self.cfg = None
 
     def start(self, payload: dict[str, object]) -> dict[str, object]:
+        source_type = str(payload.get("source_type", ""))
         source = self._source_from_payload(payload)
         self.stop()
+        self._initialize_detector()
+        if source_type != "webcam":
+            assert source is not None
+            self.capture = cv2.VideoCapture(source)
+        self.status_state = LiveStatus(running=True, source_type=source_type)
+        return self.status()
+
+    def stop(self) -> dict[str, object]:
+        if self.capture is not None:
+            self.capture.release()
+        self.capture = None
+        self.status_state.running = False
+        return self.status()
+
+    def status(self) -> dict[str, object]:
+        return asdict(self.status_state)
+
+    def mjpeg_frames(self) -> Generator[bytes, None, None]:
+        assert self.cfg is not None
+        max_fps = max(float(self.cfg["inference"].get("max_fps", 5)), 1.0)
+        frame_interval = 1.0 / max_fps
+        last_frame_started: float | None = None
+        while self.status_state.running and self.capture is not None:
+            ret, frame = self.capture.read()
+            if not ret or frame is None:
+                self.status_state.running = False
+                break
+
+            now = time.monotonic()
+            if last_frame_started is not None:
+                delay = frame_interval - (now - last_frame_started)
+                if delay > 0:
+                    time.sleep(delay)
+            last_frame_started = time.monotonic()
+
+            annotated = self._process_frame(frame)
+            ok, encoded = cv2.imencode(".jpg", annotated)
+            if not ok:
+                continue
+            yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + encoded.tobytes() + b"\r\n"
+
+    def process_browser_frame(self, encoded_frame: bytes) -> bytes:
+        if not self.status_state.running or self.status_state.source_type != "webcam":
+            raise ValueError("webcam session is not running")
+        if not encoded_frame:
+            raise ValueError("invalid JPEG frame")
+
+        frame_buffer = np.frombuffer(encoded_frame, dtype=np.uint8)
+        frame = cv2.imdecode(frame_buffer, cv2.IMREAD_COLOR)
+        if frame is None:
+            raise ValueError("invalid JPEG frame")
+
+        annotated = self._process_frame(frame)
+        ok, encoded = cv2.imencode(".jpg", annotated)
+        if not ok:
+            raise ValueError("could not encode JPEG frame")
+        return encoded.tobytes()
+
+    def _initialize_detector(self) -> None:
         self.cfg = load_config()
         self.engine = YOLOEngine(self.cfg["model"]["path"], device=self.cfg["model"]["device"])
         self.detection_filter = DetectionFilter(
@@ -60,32 +120,6 @@ class LiveDetectionSession:
             self.cfg["filtering"]["min_persistence_seconds"],
             self.cfg["filtering"]["min_consecutive_frames"],
         )
-        self.capture = cv2.VideoCapture(source)
-        self.status_state = LiveStatus(running=True, source_type=str(payload["source_type"]))
-        return self.status()
-
-    def stop(self) -> dict[str, object]:
-        if self.capture is not None:
-            self.capture.release()
-        self.capture = None
-        self.status_state.running = False
-        return self.status()
-
-    def status(self) -> dict[str, object]:
-        return asdict(self.status_state)
-
-    def mjpeg_frames(self) -> Generator[bytes, None, None]:
-        while self.status_state.running and self.capture is not None:
-            ret, frame = self.capture.read()
-            if not ret or frame is None:
-                self.status_state.running = False
-                break
-
-            annotated = self._process_frame(frame)
-            ok, encoded = cv2.imencode(".jpg", annotated)
-            if not ok:
-                continue
-            yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + encoded.tobytes() + b"\r\n"
 
     def _process_frame(self, frame: np.ndarray) -> np.ndarray:
         assert self.engine is not None
@@ -145,7 +179,7 @@ class LiveDetectionSession:
     def _source_from_payload(self, payload: dict[str, object]):
         source_type = payload.get("source_type")
         if source_type == "webcam":
-            return int(str(payload.get("camera_index", 0)))
+            return None
         if source_type == "video_file":
             file_path = Path(str(payload.get("file_path", "")))
             if not file_path.exists():

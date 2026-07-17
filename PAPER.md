@@ -40,7 +40,7 @@ The main modules are:
 |---|---|---|
 | Offline CLI entrypoint | `scripts/demo_offline.py` | Runs detection on an image/video path and displays annotated frames with OpenCV. |
 | Web entrypoint | `scripts/web_app.py` | Launches the Flask interface. |
-| Live web processing | `fire_detection_alarm/web/live.py` | Streams annotated frames as MJPEG from webcam, video file, or RTSP input. |
+| Live web processing | `fire_detection_alarm/web/live.py` | Processes browser-webcam frames and streams annotated uploaded-video or RTSP frames as MJPEG. |
 | Batch web processing | `fire_detection_alarm/web/pipeline.py` | Processes still-image uploads and can write annotated batch outputs for image/video sources. |
 | Configuration | `fire_detection_alarm/app/config.py`, `configs/default.yaml` | Loads model, inference, and filter thresholds. |
 | Model wrapper | `fire_detection_alarm/models/yolo_engine.py` | Wraps `ultralytics.YOLO.predict`. |
@@ -81,7 +81,7 @@ classes:
   allowed: [0, 1]
 ```
 
-Class IDs `0` and `1` are treated as smoke and fire candidates. The model path points to external weights; model weights should not be committed into the repository. `max_fps` is present in configuration for runtime policy, but the current processing loops do not actively throttle frames with it.
+Class IDs `0` and `1` are treated as smoke and fire candidates. The model path points to external weights; model weights should not be committed into the repository. Live browser-webcam capture and MJPEG processing use `max_fps` to limit frame processing load.
 
 ## Data Model
 
@@ -297,10 +297,10 @@ PYTHONPATH=. venv/bin/python scripts/web_app.py
 
 The live UI supports:
 
-- webcam input;
-- local video-file playback;
+- browser-owned webcam input through `getUserMedia`;
+- browser video-file upload and live playback;
 - RTSP URL input;
-- uploaded video live playback;
+- browser webcam JPEG processing through `/api/live/frame`;
 - MJPEG annotated frame streaming via `/stream.mjpeg`;
 - status through `/api/live/status`.
 
@@ -315,7 +315,7 @@ latest_reason
 error
 ```
 
-Video uploads are played as live streams instead of waiting for batch completion. This allows the user to watch annotated frames and decision status at the same time. Still-image uploads use the batch web pipeline and produce annotated result files.
+The live page uploads selected video files before playing their annotated MJPEG stream. Browser webcam frames are captured on the user's device, posted one at a time for inference, and returned as annotated JPEGs; the server webcam is not opened. The dashboard's separate batch workflow processes finite image/video uploads and produces completion reports.
 
 ## How the Layers Reduce False Alarms
 
@@ -360,7 +360,7 @@ This project follows patterns used in practical video fire detection systems:
 - **Modular pipeline**: detector, normalizer, filters, renderer, and logger are separated.
 - **Auditable decisions**: every rejection/acceptance has a reason string.
 - **Configurable thresholds**: model, inference, and filters are controlled through YAML.
-- **Live operation**: web interface supports webcam, video file, RTSP, and uploaded video playback.
+- **Live operation**: web interface supports browser-owned webcam capture, uploaded video playback, and RTSP streams.
 - **False-alarm reduction**: filters address confidence, size, behavior, and persistence.
 - **Test coverage**: tests cover filtering, behavior tracking, temporal persistence, normalization, logging, and web/live routes.
 

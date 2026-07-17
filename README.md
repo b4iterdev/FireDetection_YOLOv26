@@ -69,10 +69,12 @@ PYTHONPATH=. .venv/bin/python scripts/web_app.py
 Open:
 
 ```text
-http://127.0.0.1:5000/live
+http://127.0.0.1:5000/
 ```
 
-The live UI supports webcam, uploaded video playback, local video files, and RTSP streams. Uploaded still images are processed through the batch pipeline and written under `outputs/web/results/`.
+The dashboard processes uploaded images and finite videos through the batch pipeline, then presents a completion report with summary metrics, decision details, triggered-frame evidence, and annotated output. Generated files are written under `outputs/web/results/`.
+
+Open `/live` for continuous monitoring from this device's webcam, an uploaded video, or an RTSP stream. Webcam permission and capture stay in the browser; the server camera is not used.
 
 ## Run tests
 
