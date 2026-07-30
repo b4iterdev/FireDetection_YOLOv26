@@ -6,7 +6,6 @@ def test_cooldown_mechanism_removed_from_runtime_code():
     runtime_files = [
         repo_root / "scripts" / "demo_offline.py",
         repo_root / "fire_detection_alarm" / "web" / "live.py",
-        repo_root / "fire_detection_alarm" / "web" / "pipeline.py",
         repo_root / "configs" / "default.yaml",
     ]
 

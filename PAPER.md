@@ -40,8 +40,7 @@ The main modules are:
 |---|---|---|
 | Offline CLI entrypoint | `scripts/demo_offline.py` | Runs detection on an image/video path and displays annotated frames with OpenCV. |
 | Web entrypoint | `scripts/web_app.py` | Launches the Flask interface. |
-| Live web processing | `fire_detection_alarm/web/live.py` | Processes browser-webcam frames and streams annotated uploaded-video or RTSP frames as MJPEG. |
-| Batch web processing | `fire_detection_alarm/web/pipeline.py` | Processes still-image uploads and can write annotated batch outputs for image/video sources. |
+| Live web processing | `fire_detection_alarm/web/live.py` | Processes webcam, RTSP, and uploaded-video sessions, writes annotated live outputs, and finalizes result summaries. |
 | Configuration | `fire_detection_alarm/app/config.py`, `configs/default.yaml` | Loads model, inference, and filter thresholds. |
 | Model wrapper | `fire_detection_alarm/models/yolo_engine.py` | Wraps `ultralytics.YOLO.predict`. |
 | Normalization | `fire_detection_alarm/detection/normalizer.py` | Converts raw YOLO boxes into canonical `Detection` objects. |
@@ -312,10 +311,14 @@ source_type
 frame_count
 accepted_count
 latest_reason
+latest_triggered_frame
 error
+summary_available
+summary_url
+completed_reason
 ```
 
-The live page uploads selected video files before playing their annotated MJPEG stream. Browser webcam frames are captured on the user's device, posted one at a time for inference, and returned as annotated JPEGs; the server webcam is not opened. The dashboard's separate batch workflow processes finite image/video uploads and produces completion reports.
+The live page is the system's single web analysis workspace. It uploads selected video files before playing their annotated MJPEG stream, while browser webcam frames are captured on the user's device, posted one at a time for inference, and returned as annotated JPEGs; the server webcam is not opened. The session accumulates decisions and triggered evidence throughout monitoring. Uploaded-video EOF or an explicit stop finalizes a report containing summary metrics, decision reasons, evidence frames, the decision audit, and annotated video output when available.
 
 ## How the Layers Reduce False Alarms
 
@@ -387,7 +390,7 @@ The most valuable next improvements are:
    - Use class-specific thresholds because smoke and flame have different false-positive patterns.
 
 4. **Incident timeline UI**
-   - Persist accepted alarms and decision history in a searchable dashboard.
+   - Extend the live-session report into a searchable incident timeline across completed monitoring sessions.
 
 5. **Sensor or context fusion**
    - Combine RGB detections with thermal cameras, smoke sensors, humidity, or scene zones.

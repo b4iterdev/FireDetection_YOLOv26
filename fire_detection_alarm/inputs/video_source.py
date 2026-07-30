@@ -19,6 +19,9 @@ class VideoSource(BaseSource):
             return capture_fps
         return DEFAULT_VIDEO_FPS
 
+    def media_time_seconds(self, frame_id: int) -> float:
+        return float(frame_id) / self.fps()
+
     def release(self) -> None:
         if self.cap.isOpened():
             self.cap.release()

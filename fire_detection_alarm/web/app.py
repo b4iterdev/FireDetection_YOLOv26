@@ -5,19 +5,11 @@ from uuid import uuid4
 import importlib
 
 from fire_detection_alarm.app.config import load_config
-from fire_detection_alarm.web.pipeline import WebPipelineResult
-from fire_detection_alarm.web.pipeline import WebPipelineRunner
 from fire_detection_alarm.web.live import LiveDetectionSession
+from fire_detection_alarm.web.summary import LiveSummary
 
 
-SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
 SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv"}
-SUPPORTED_UPLOAD_EXTENSIONS = SUPPORTED_IMAGE_EXTENSIONS | SUPPORTED_VIDEO_EXTENSIONS
-
-
-class PipelineRunner(Protocol):
-    def run(self, input_path: Path, model_path: str) -> WebPipelineResult:
-        ...
 
 
 class LiveSession(Protocol):
@@ -30,6 +22,9 @@ class LiveSession(Protocol):
     def status(self) -> dict[str, object]:
         ...
 
+    def result(self) -> LiveSummary | None:
+        ...
+
     def mjpeg_frames(self) -> Iterator[bytes]:
         ...
 
@@ -40,8 +35,6 @@ class LiveSession(Protocol):
 def create_app(
     upload_dir: str | Path = "outputs/web/uploads",
     result_dir: str | Path = "outputs/web/results",
-    log_dir: str | Path = "outputs/web/logs",
-    pipeline_runner: PipelineRunner | None = None,
     live_session: LiveSession | None = None,
 ) -> Any:
     flask = importlib.import_module("flask")
@@ -49,41 +42,16 @@ def create_app(
     app = flask.Flask(__name__)
     upload_path = Path(upload_dir).resolve()
     result_path = Path(result_dir).resolve()
-    log_path = Path(log_dir).resolve()
     upload_path.mkdir(parents=True, exist_ok=True)
     result_path.mkdir(parents=True, exist_ok=True)
-    log_path.mkdir(parents=True, exist_ok=True)
-    runner = pipeline_runner or WebPipelineRunner(result_path, log_path)
     live = live_session or LiveDetectionSession(result_path)
     cfg = load_config()
-    default_model = str(cfg["model"]["path"])
     max_fps = int(cfg.get("inference", {}).get("max_fps", 5))
-    image_size = int(cfg["model"].get("image_size", 640))
-
-    def render_dashboard_error(message: str) -> Any:
-        return flask.render_template("index.html", error=message, default_model=default_model), 400
+    image_size = int(cfg.get("model", {}).get("image_size", 640))
 
     @app.get("/")
     def index() -> Any:
-        return flask.render_template("index.html", default_model=default_model)
-
-    @app.post("/process")
-    def process_upload() -> Any:
-        uploaded_file = flask.request.files.get("file")
-        if uploaded_file is None or uploaded_file.filename == "":
-            return render_dashboard_error("Choose an image or video file.")
-
-        original_filename = werkzeug_utils.secure_filename(uploaded_file.filename)
-        if original_filename == "" or Path(original_filename).suffix.lower() not in SUPPORTED_UPLOAD_EXTENSIONS:
-            return render_dashboard_error("Upload a supported image or video file.")
-
-        filename = f"{uuid4().hex}_{original_filename}"
-        input_path = upload_path / filename
-        uploaded_file.save(input_path)
-
-        model_path = flask.request.form.get("model_path") or default_model
-        result = runner.run(input_path, model_path)
-        return flask.render_template("result.html", result=result, output_name=result.output_path.name)
+        return flask.redirect(flask.url_for("live_page"))
 
     @app.get("/outputs/<path:filename>")
     def outputs(filename: str) -> Any:
@@ -97,6 +65,13 @@ def create_app(
             max_fps=max_fps,
             image_size=image_size,
         )
+
+    @app.get("/live/result")
+    def live_result() -> Any:
+        result = live.result()
+        if result is None:
+            return flask.redirect(flask.url_for("live_page"))
+        return flask.render_template("result.html", result=result, output_name=result.output_path.name)
 
     @app.post("/api/live/start")
     def live_start() -> Any:
@@ -149,6 +124,9 @@ def create_app(
 
     @app.get("/stream.mjpeg")
     def stream() -> Any:
+        status = live.status()
+        if not status.get("running") or status.get("source_type") == "webcam":
+            return {"error": "live stream is not available"}, 409
         return flask.Response(
             live.mjpeg_frames(),
             mimetype="multipart/x-mixed-replace; boundary=frame",

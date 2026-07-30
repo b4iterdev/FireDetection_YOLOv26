@@ -72,9 +72,9 @@ Open:
 http://127.0.0.1:5000/
 ```
 
-The dashboard processes uploaded images and finite videos through the batch pipeline, then presents a completion report with summary metrics, decision details, triggered-frame evidence, and annotated output. Generated files are written under `outputs/web/results/`.
+The web app redirects to `/live`, the single analysis workspace for this device's webcam, uploaded videos, and RTSP streams. Webcam permission and capture stay in the browser; the server camera is not used.
 
-Open `/live` for continuous monitoring from this device's webcam, an uploaded video, or an RTSP stream. Webcam permission and capture stay in the browser; the server camera is not used.
+When an uploaded video ends or monitoring is stopped, the app opens a session report with summary metrics, decision reasons, triggered-frame evidence, the decision audit, and annotated output when available. Generated files are written under `outputs/web/results/`.
 
 ## Run tests
 

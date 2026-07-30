@@ -64,8 +64,13 @@ def main():
             iou=cfg["inference"]["iou_threshold"]
         )
         
-        timestamp = time.time()
-        yolo_detections = normalize_yolo_output(results[0], "demo", frame_id, timestamp)
+        record_timestamp = time.time()
+        persistence_timestamp = (
+            source.media_time_seconds(frame_id)
+            if isinstance(source, VideoSource)
+            else record_timestamp
+        )
+        yolo_detections = normalize_yolo_output(results[0], "demo", frame_id, record_timestamp)
         
         pipeline_decisions = []
 
@@ -81,18 +86,18 @@ def main():
         temporally_accepted = temporal_filter.check(
             "demo",
             bool(post_filter_detections),
-            timestamp=timestamp,
+            timestamp=persistence_timestamp,
         )
 
         for detection in post_filter_detections:
             if not temporally_accepted:
                 pipeline_decisions.append(
-                    DetectionDecision(detection, False, "not_persistent", timestamp)
+                    DetectionDecision(detection, False, "not_persistent", record_timestamp)
                 )
                 continue
 
             pipeline_decisions.append(
-                DetectionDecision(detection, True, "accepted", timestamp)
+                DetectionDecision(detection, True, "accepted", record_timestamp)
             )
 
         for decision in pipeline_decisions:

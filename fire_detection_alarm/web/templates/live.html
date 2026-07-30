@@ -3,24 +3,20 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Live Detection Player | Firewatch</title>
+    <title>Live Monitor</title>
+    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   </head>
   <body>
-    <header class="site-header">
-      <a class="brand" href="{{ url_for('index') }}" aria-label="Firewatch dashboard"><span class="brand-mark" aria-hidden="true"></span><span>Firewatch <small>Detection Console</small></span></a>
-      <nav class="site-nav" aria-label="Primary navigation"><a href="{{ url_for('index') }}">Dashboard</a><a class="active" href="{{ url_for('live_page') }}" aria-current="page">Live monitor</a></nav>
-    </header>
-
     <main class="container live-page">
-      <section class="page-heading"><div><p class="eyebrow">Continuous monitoring</p><h1>Live Detection Player</h1><p>Connect your camera or a video source, inspect the annotated stream, and track confirmed alarms in real time.</p></div><span id="connection-chip" class="status-chip status-idle">Idle</span></section>
+      <section class="page-heading"><div><h1>Live Fire Monitor</h1></div><span id="connection-chip" class="status-chip status-idle">Idle</span></section>
 
       <div id="live-error" class="alert alert-error" role="alert" hidden><strong>Live source error</strong><span id="live-error-message"></span></div>
 
       <section class="live-layout">
         {% if show_source_controls %}
         <aside class="panel live-controls">
-          <p class="eyebrow">Source setup</p><h2>Connect a source</h2>
+          <p class="eyebrow">Source setup</p><h2>Choose what to monitor</h2>
           <label for="source_type">Source type</label>
           <select id="source_type">
             <option value="webcam">This device's webcam</option>
@@ -41,12 +37,17 @@
             <input id="rtsp_url" name="rtsp_url" type="text" placeholder="rtsp://camera/stream">
           </div>
           <div class="button-row"><button id="start-live" class="button button-primary" type="button">Start monitoring</button><button id="stop-live" class="button button-secondary" type="button">Stop</button></div>
-          <p class="field-help">Live monitoring continues while this page remains open.</p>
         </aside>
         {% endif %}
 
         <section class="stream-column">
-          <div class="stream-frame"><div class="stream-toolbar"><span>Annotated stream</span><span id="stream-state">Waiting for source</span></div><img id="live_player" class="live-player" alt="Live detection stream"></div>
+          <div class="stream-frame">
+            <div class="stream-toolbar"><span>Annotated stream</span><span id="stream-state">Waiting for source</span></div>
+            <div class="stream-canvas">
+              <div id="stream-placeholder" class="stream-placeholder"><span class="stream-placeholder-mark" aria-hidden="true"></span><strong>No source connected</strong><small>Choose a source and start monitoring to view annotated frames.</small></div>
+              <img id="live_player" class="live-player" alt="Live detection stream" hidden>
+            </div>
+          </div>
           <video id="webcam-source" muted playsinline hidden></video>
           <canvas id="webcam-canvas" hidden></canvas>
           <section class="metric-grid live-metrics" aria-label="Live detection status" aria-live="polite">
@@ -66,6 +67,7 @@
       const errorBox = document.getElementById('live-error');
       const errorMessage = document.getElementById('live-error-message');
       const livePlayer = document.getElementById('live_player');
+      const streamPlaceholder = document.getElementById('stream-placeholder');
       const webcamSource = document.getElementById('webcam-source');
       const webcamCanvas = document.getElementById('webcam-canvas');
       const maxFps = Math.max(Number({{ max_fps|default(5) }}), 1);
@@ -77,6 +79,14 @@
       let frameRequestController = null;
       let annotatedFrameUrl = null;
       let startGeneration = 0;
+      let videoSummaryArmed = false;
+      let summaryNavigationStarted = false;
+
+      function navigateToSummary(data) {
+        if (summaryNavigationStarted || !data?.summary_available || !data.summary_url) return;
+        summaryNavigationStarted = true;
+        window.location.assign(data.summary_url);
+      }
 
       function updateSourceFields() {
         if (!sourceType) return;
@@ -92,18 +102,20 @@
 
       function renderStatus(data) {
         const running = Boolean(data.running);
-        document.getElementById('status-running').textContent = running ? 'Running' : 'Idle';
+        const completed = Boolean(data.summary_available) && !running;
+        document.getElementById('status-running').textContent = running ? 'Running' : (completed ? 'Complete' : 'Idle');
         document.getElementById('status-frames').textContent = data.frame_count || 0;
         document.getElementById('status-accepted').textContent = data.accepted_count || 0;
         document.getElementById('status-reason').textContent = (data.latest_reason || 'None').replaceAll('_', ' ');
-        document.getElementById('stream-state').textContent = running ? 'Monitoring' : 'Waiting for source';
+        document.getElementById('stream-state').textContent = running ? 'Monitoring' : (completed ? 'Report ready' : 'Waiting for source');
         const chip = document.getElementById('connection-chip');
-        chip.textContent = running ? 'Running' : 'Idle';
-        chip.className = `status-chip ${running ? 'status-running' : 'status-idle'}`;
+        chip.textContent = running ? 'Running' : (completed ? 'Complete' : 'Idle');
+        chip.className = `status-chip ${running ? 'status-running' : (completed ? 'status-complete' : 'status-idle')}`;
         const evidence = document.getElementById('latest-evidence');
         if (data.latest_triggered_frame) { evidence.href = data.latest_triggered_frame; evidence.hidden = false; } else { evidence.hidden = true; }
         statusOutput.textContent = JSON.stringify(data, null, 2);
         if (data.error) showError(data.error);
+        if (videoSummaryArmed && data.source_type === 'video_file' && completed) navigateToSummary(data);
       }
 
       async function responseError(response) {
@@ -131,6 +143,17 @@
       function releaseAnnotatedFrame() {
         if (annotatedFrameUrl) URL.revokeObjectURL(annotatedFrameUrl);
         annotatedFrameUrl = null;
+      }
+
+      function showLivePlayer() {
+        livePlayer.hidden = false;
+        streamPlaceholder.hidden = true;
+      }
+
+      function clearLivePlayer() {
+        livePlayer.removeAttribute('src');
+        livePlayer.hidden = true;
+        streamPlaceholder.hidden = false;
       }
 
       function stopBrowserWebcam() {
@@ -183,6 +206,7 @@
             if (!webcamActive || generation !== webcamGeneration) return;
             releaseAnnotatedFrame();
             annotatedFrameUrl = URL.createObjectURL(annotatedFrame);
+            showLivePlayer();
             livePlayer.src = annotatedFrameUrl;
           }
         } catch (error) {
@@ -259,6 +283,8 @@
         }
         if (data) {
           showError('');
+          videoSummaryArmed = true;
+          showLivePlayer();
           livePlayer.src = '/stream.mjpeg?ts=' + Date.now();
         }
       }
@@ -277,6 +303,7 @@
         }
         if (data) {
           showError('');
+          showLivePlayer();
           livePlayer.src = '/stream.mjpeg?ts=' + Date.now();
         }
       }
@@ -284,8 +311,10 @@
       async function startLive() {
         const generation = ++startGeneration;
         const selectedSource = sourceType.value;
+        videoSummaryArmed = false;
+        summaryNavigationStarted = false;
         stopBrowserWebcam();
-        livePlayer.removeAttribute('src');
+        clearLivePlayer();
         startButton.disabled = true;
         try {
           if (selectedSource === 'webcam') await startWebcam(generation);
@@ -296,20 +325,24 @@
         }
       }
 
-      async function stopLive() {
+      async function stopLive(showSummary = false) {
         startGeneration += 1;
+        videoSummaryArmed = false;
         startButton.disabled = false;
         stopBrowserWebcam();
-        livePlayer.removeAttribute('src');
+        clearLivePlayer();
         const data = await requestJson('/api/live/stop', { method: 'POST' });
-        if (data) showError('');
+        if (data) {
+          showError('');
+          if (showSummary) navigateToSummary(data);
+        }
       }
 
       function refreshStatus() { return requestJson('/api/live/status'); }
 
       if (sourceType) {
         sourceType.addEventListener('change', async () => {
-          await stopLive();
+          await stopLive(false);
           updateSourceFields();
         });
         updateSourceFields();
@@ -317,7 +350,7 @@
       const startButton = document.getElementById('start-live');
       const stopButton = document.getElementById('stop-live');
       if (startButton) startButton.addEventListener('click', startLive);
-      if (stopButton) stopButton.addEventListener('click', stopLive);
+      if (stopButton) stopButton.addEventListener('click', () => stopLive(true));
       window.addEventListener('beforeunload', () => {
         stopBrowserWebcam();
         navigator.sendBeacon('/api/live/stop');

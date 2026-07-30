@@ -3,31 +3,27 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Detection Report | Firewatch</title>
+    <title>Detection Report</title>
+    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   </head>
   <body>
-    <header class="site-header">
-      <a class="brand" href="{{ url_for('index') }}" aria-label="Firewatch dashboard"><span class="brand-mark" aria-hidden="true"></span><span>Firewatch <small>Detection Console</small></span></a>
-      <nav class="site-nav" aria-label="Primary navigation"><a href="{{ url_for('index') }}">Dashboard</a><a href="{{ url_for('live_page') }}">Live monitor</a></nav>
-    </header>
-
     <main class="container report-page">
       <section class="report-hero {% if result.accepted_count %}report-alert{% else %}report-clear{% endif %}">
         <div class="outcome-mark" aria-hidden="true">{% if result.accepted_count %}!{% else %}✓{% endif %}</div>
         <div>
-          <p class="eyebrow">Processing complete</p>
+          <p class="eyebrow">{% if result.completed_reason|default('completed') == 'stopped' %}Monitoring stopped{% else %}Processing complete{% endif %}</p>
           {% if result.accepted_count %}
             <h1>{{ result.accepted_count }} accepted alarm{% if result.accepted_count != 1 %}s require{% else %} requires{% endif %} review</h1>
             <p>Potential fire or smoke activity passed the configured filters. Review the evidence and decision audit below.</p>
           {% else %}
             <h1>No confirmed alarms detected</h1>
-            <p>The file was processed successfully and no candidate passed all configured filters.</p>
+            <p>The session was processed successfully and no candidate passed all configured filters.</p>
           {% endif %}
         </div>
         <div class="report-actions">
           {% if result.output_available %}<a class="button button-primary" href="{{ url_for('outputs', filename=output_name) }}">Open annotated output</a>{% endif %}
-          <a class="button button-secondary" href="{{ url_for('index') }}">Analyze another file</a>
+          <a class="button button-secondary" href="{{ url_for('live_page') }}">Return to live monitor</a>
         </div>
       </section>
 
@@ -42,7 +38,8 @@
         <article class="panel source-summary">
           <div class="section-heading"><div><p class="eyebrow">Source</p><h2>Analysis details</h2></div><span class="status-chip">{{ result.input_type }}</span></div>
           <dl class="detail-list">
-            <div><dt>Input file</dt><dd>{{ result.input_filename }}</dd></div>
+            <div><dt>Source</dt><dd>{{ result.input_filename }}</dd></div>
+            <div><dt>Session ended</dt><dd>{{ result.completed_reason|default('completed')|replace('_', ' ')|title }}</dd></div>
             <div><dt>Processing time</dt><dd>{{ "%.2f"|format(result.processing_seconds) }} seconds</dd></div>
             <div><dt>Highest confidence</dt><dd>{{ "%.1f"|format(result.max_confidence * 100) }}%</dd></div>
             <div><dt>Output status</dt><dd>{% if result.output_available %}Available{% else %}No output file generated{% endif %}</dd></div>
