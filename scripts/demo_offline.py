@@ -108,7 +108,7 @@ def main():
             for decision in pipeline_decisions
             if decision.accepted
         ]
-        frame = render_detections(frame, accepted_detections)
+        frame = render_detections(frame, yolo_detections, accepted_detections)
         
         cv2.imshow("Fire Detection Demo", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):

@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from fire_detection_alarm.filtering.decision import DetectionDecision
+from fire_detection_alarm.detection.schema import Detection
 import scripts.demo_offline as demo_offline
 
 
@@ -96,7 +97,12 @@ def test_demo_offline_video_persistence_uses_media_time_while_records_keep_wall_
     monkeypatch.setattr(demo_offline, "VideoSource", FakeVideoSource)
     monkeypatch.setattr(demo_offline, "DetectionLogger", CapturingLogger)
     monkeypatch.setattr("scripts.demo_offline.time.time", lambda: next(wall_times))
-    monkeypatch.setattr("scripts.demo_offline.render_detections", lambda frame, detections: frame)
+    render_calls: list[tuple[list[Detection], list[Detection]]] = []
+    def mock_render(frame: np.ndarray, all_detections: list[Detection], accepted_detections: list[Detection]) -> np.ndarray:
+        render_calls.append((all_detections, accepted_detections))
+        return frame
+
+    monkeypatch.setattr("scripts.demo_offline.render_detections", mock_render)
     monkeypatch.setattr("scripts.demo_offline.cv2.imshow", lambda window, frame: None)
     monkeypatch.setattr("scripts.demo_offline.cv2.waitKey", lambda delay: -1)
     monkeypatch.setattr("scripts.demo_offline.cv2.destroyAllWindows", lambda: None)
@@ -110,3 +116,10 @@ def test_demo_offline_video_persistence_uses_media_time_while_records_keep_wall_
     ]
     assert [decision.timestamp for decision in decisions] == [1000.0, 1000.1, 1000.2]
     assert [decision.detection.timestamp for decision in decisions] == [1000.0, 1000.1, 1000.2]
+
+    assert len(render_calls) == 3
+    for all_dets, _ in render_calls:
+        assert len(all_dets) == 1
+    assert len(render_calls[0][1]) == 0
+    assert len(render_calls[1][1]) == 0
+    assert len(render_calls[2][1]) == 1
